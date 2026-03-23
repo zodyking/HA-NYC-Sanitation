@@ -147,19 +147,17 @@ async def websocket_get_tts_options(
 
 
 @websocket_api.websocket_command(
-    websocket_api.BASE_COMMAND_MESSAGE_SCHEMA.extend(
-        {
-            vol.Required("type"): WS_TYPE_SET_TTS_OPTIONS,
-            vol.Required("tts_enabled"): bool,
-            vol.Required("announce_hour"): vol.All(int, vol.Range(min=0, max=23)),
-            vol.Required("announce_minute"): vol.All(int, vol.Range(min=0, max=59)),
-            vol.Required("media_player_entity_id"): str,
-            vol.Optional("tts_entity_id", default=""): str,
-            vol.Optional("volume", default=None): vol.Any(
-                None, vol.All(vol.Coerce(float), vol.Range(min=0, max=1))
-            ),
-        }
-    )
+    {
+        vol.Required("type"): WS_TYPE_SET_TTS_OPTIONS,
+        vol.Required("tts_enabled"): bool,
+        vol.Required("announce_hour"): vol.All(int, vol.Range(min=0, max=23)),
+        vol.Required("announce_minute"): vol.All(int, vol.Range(min=0, max=59)),
+        vol.Required("media_player_entity_id"): str,
+        vol.Optional("tts_entity_id", default=""): str,
+        vol.Optional("volume", default=None): vol.Any(
+            None, vol.All(vol.Coerce(float), vol.Range(min=0, max=1))
+        ),
+    }
 )
 @websocket_api.async_response
 async def websocket_set_tts_options(
