@@ -18,6 +18,47 @@ const WEEK_ORDER = [
   "Sunday",
 ];
 
+/** @param {number} h24 */
+function hour24to12Parts(h24) {
+  const h = Math.max(0, Math.min(23, Math.floor(h24)));
+  if (h === 0) return { h12: 12, ampm: "am" };
+  if (h < 12) return { h12: h, ampm: "am" };
+  if (h === 12) return { h12: 12, ampm: "pm" };
+  return { h12: h - 12, ampm: "pm" };
+}
+
+/** Stored exclusive end E: reminders run while local hour H satisfies start <= H < E (E = 24 → through hour 23). */
+function hourExclusiveEndToDisplayParts(endExclusive) {
+  const e = Math.max(1, Math.min(24, Math.floor(endExclusive)));
+  if (e === 24) return { h12: 12, ampm: "am" };
+  return hour24to12Parts(e);
+}
+
+/** User picks clock time as first excluded hour (e.g. 8 PM → E = 20). */
+function hour12ToExclusiveEnd(h12, ampm) {
+  const h = parseInt(String(h12), 10);
+  if (!Number.isFinite(h) || h < 1 || h > 12) return 20;
+  const isPm = ampm === "pm";
+  let h24;
+  if (h === 12 && !isPm) h24 = 0;
+  else if (h === 12 && isPm) h24 = 12;
+  else if (isPm) h24 = h + 12;
+  else h24 = h;
+  if (h24 === 0) return 24;
+  return Math.min(24, h24);
+}
+
+/** @param {number} h12 @param {"am"|"pm"} ampm */
+function hour12To24(h12, ampm) {
+  const h = parseInt(String(h12), 10);
+  if (!Number.isFinite(h) || h < 1 || h > 12) return 12;
+  const isPm = ampm === "pm";
+  if (h === 12 && !isPm) return 0;
+  if (h === 12 && isPm) return 12;
+  if (isPm) return h + 12;
+  return h;
+}
+
 /** Next weekday in Mon→Sun cycle (Sunday wraps to Monday). */
 function nextWeekdayInOrder(day) {
   const i = WEEK_ORDER.indexOf(day);
@@ -35,12 +76,17 @@ class NycSanitationPanel extends HTMLElement {
     this._loading = true;
     this._pollTimer = null;
     this._didInitialLoad = false;
-    this._settingsOpen = false;
+    /** @type {"main"|"settings"} */
+    this._view = "main";
     this._ttsLoading = false;
     this._ttsOptions = null;
     this._ttsTomorrowTypes = [];
+    this._ttsPreviewMessage = "";
+    this._mediaPlayers = [];
+    this._ttsEntities = [];
     this._ttsLoadError = null;
     this._ttsSaveError = null;
+    this._ttsValidationError = null;
     this._ttsTestError = null;
   }
 
@@ -54,7 +100,7 @@ class NycSanitationPanel extends HTMLElement {
       this._didInitialLoad = true;
       this._loadData();
     }
-    if (!this._settingsOpen) {
+    if (this._view === "main") {
       this._render();
     }
   }
@@ -80,13 +126,13 @@ class NycSanitationPanel extends HTMLElement {
       this._pollTimer = null;
     }
     this._didInitialLoad = false;
-    this._settingsOpen = false;
+    this._view = "main";
   }
 
   async _loadData() {
     if (!this._hass) return;
     this._loading = true;
-    if (!this._settingsOpen) {
+    if (this._view === "main") {
       this._render();
     }
     try {
@@ -101,7 +147,7 @@ class NycSanitationPanel extends HTMLElement {
       };
     } finally {
       this._loading = false;
-      if (!this._settingsOpen) {
+      if (this._view === "main") {
         this._render();
       }
     }
@@ -113,10 +159,11 @@ class NycSanitationPanel extends HTMLElement {
 
   async _openSettings() {
     if (!this._hass || !this._isAdmin()) return;
-    this._settingsOpen = true;
+    this._view = "settings";
     this._ttsLoading = true;
     this._ttsLoadError = null;
     this._ttsSaveError = null;
+    this._ttsValidationError = null;
     this._ttsTestError = null;
     this._ttsOptions = null;
     this._render();
@@ -124,6 +171,9 @@ class NycSanitationPanel extends HTMLElement {
       const res = await this._hass.callWS({ type: WS_GET_TTS_OPTIONS });
       this._ttsOptions = res.options || {};
       this._ttsTomorrowTypes = res.tomorrow_types || [];
+      this._ttsPreviewMessage = res.preview_message || "";
+      this._mediaPlayers = res.media_players || [];
+      this._ttsEntities = res.tts_entities || [];
     } catch (e) {
       this._ttsLoadError =
         e?.message || String(e) || "Could not load TTS settings";
@@ -134,12 +184,38 @@ class NycSanitationPanel extends HTMLElement {
     }
   }
 
+  async _reloadTtsAndCollection() {
+    await this._loadData();
+    if (this._view !== "settings" || !this._hass) return;
+    try {
+      const res = await this._hass.callWS({ type: WS_GET_TTS_OPTIONS });
+      this._ttsOptions = res.options || {};
+      this._ttsTomorrowTypes = res.tomorrow_types || [];
+      this._ttsPreviewMessage = res.preview_message || "";
+      this._mediaPlayers = res.media_players || [];
+      this._ttsEntities = res.tts_entities || [];
+    } catch (e) {
+      console.error("NYC Sanitation refresh TTS options", e);
+    }
+    this._render();
+  }
+
   _closeSettings() {
-    this._settingsOpen = false;
+    this._view = "main";
     this._ttsLoadError = null;
     this._ttsSaveError = null;
+    this._ttsValidationError = null;
     this._ttsTestError = null;
     this._render();
+  }
+
+  _readSelect(root, id) {
+    return root.querySelector(id)?.value ?? "";
+  }
+
+  _readNum(root, id, fallback) {
+    const n = parseInt(root.querySelector(id)?.value ?? "", 10);
+    return Number.isFinite(n) ? n : fallback;
   }
 
   async _saveTtsSettings(ev) {
@@ -147,16 +223,66 @@ class NycSanitationPanel extends HTMLElement {
     if (!this._hass) return;
     const root = this.shadowRoot;
     const enabled = root.querySelector("#tts-enabled")?.checked === true;
-    const hour = parseInt(root.querySelector("#tts-hour")?.value ?? "19", 10);
-    const minute = parseInt(root.querySelector("#tts-minute")?.value ?? "0", 10);
-    const mediaPlayer = root.querySelector("#tts-media-player")?.value?.trim() ?? "";
-    const ttsEntity = root.querySelector("#tts-entity")?.value?.trim() ?? "";
-    const volRaw = root.querySelector("#tts-volume")?.value?.trim() ?? "";
+
+    const startH = hour12To24(
+      this._readNum(root, "#tts-start-hour", 12),
+      this._readSelect(root, "#tts-start-ampm") === "pm" ? "pm" : "am"
+    );
+    const endExclusive = hour12ToExclusiveEnd(
+      this._readNum(root, "#tts-end-hour", 8),
+      this._readSelect(root, "#tts-end-ampm") === "pm" ? "pm" : "am"
+    );
+
+    this._ttsValidationError = null;
+    if (startH >= endExclusive) {
+      this._ttsValidationError =
+        "Start time must be before end time (same calendar day).";
+      this._render();
+      return;
+    }
+
+    const interval = this._readNum(root, "#tts-interval", 1);
+    const minute = Math.max(
+      0,
+      Math.min(59, this._readNum(root, "#tts-minute-offset", 0))
+    );
+    const mediaPlayer =
+      root.querySelector("#tts-media-player")?.value?.trim() ?? "";
+    const ttsEntity = root.querySelector("#tts-tts-entity")?.value?.trim() ?? "";
+    const volSlider = root.querySelector("#tts-volume-slider");
+    const volumeApply = root.querySelector("#tts-volume-apply")?.checked === true;
     let volume = null;
-    if (volRaw !== "") {
-      const v = Number(volRaw);
+    if (volumeApply && volSlider) {
+      const v = Number(volSlider.value);
       if (!Number.isNaN(v)) volume = Math.min(1, Math.max(0, v));
     }
+
+    const ttsCache = root.querySelector("#tts-cache")?.checked !== false;
+    const ttsLanguage = root.querySelector("#tts-language")?.value?.trim() ?? "";
+    let ttsOptionsRaw = root.querySelector("#tts-options-json")?.value ?? "";
+    ttsOptionsRaw = String(ttsOptionsRaw).trim();
+    let ttsOptionsPayload = null;
+    if (ttsOptionsRaw) {
+      try {
+        ttsOptionsPayload = JSON.parse(ttsOptionsRaw);
+        if (typeof ttsOptionsPayload !== "object" || ttsOptionsPayload === null) {
+          this._ttsValidationError = "TTS options must be a JSON object.";
+          this._render();
+          return;
+        }
+      } catch {
+        this._ttsValidationError = "TTS options must be valid JSON.";
+        this._render();
+        return;
+      }
+    }
+
+    const prefix = root.querySelector("#tts-prefix")?.value ?? "";
+    const msgTrash = root.querySelector("#tts-msg-trash")?.value ?? "";
+    const msgRec = root.querySelector("#tts-msg-recycling")?.value ?? "";
+    const msgCompost = root.querySelector("#tts-msg-compost")?.value ?? "";
+    const msgBulk = root.querySelector("#tts-msg-large")?.value ?? "";
+    const msgMixed = root.querySelector("#tts-msg-mixed")?.value ?? "";
 
     this._ttsSaveError = null;
     this._render();
@@ -164,15 +290,33 @@ class NycSanitationPanel extends HTMLElement {
       const payload = {
         type: WS_SET_TTS_OPTIONS,
         tts_enabled: enabled,
-        announce_hour: Number.isFinite(hour) ? hour : 19,
-        announce_minute: Number.isFinite(minute) ? minute : 0,
+        tts_window_start_hour: startH,
+        tts_window_end_hour: endExclusive,
+        tts_interval_hours: Math.min(4, Math.max(1, interval)),
+        tts_minute_offset: minute,
         media_player_entity_id: mediaPlayer,
         tts_entity_id: ttsEntity,
         volume,
+        tts_cache: ttsCache,
+        tts_language: ttsLanguage,
+        tts_options: ttsOptionsPayload,
+        tts_message_prefix: prefix,
+        tts_message_trash: msgTrash,
+        tts_message_recycling: msgRec,
+        tts_message_compost: msgCompost,
+        tts_message_large_items: msgBulk,
+        tts_message_mixed: msgMixed,
       };
       const res = await this._hass.callWS(payload);
       this._ttsOptions = res.options || this._ttsOptions;
       this._ttsSaveError = null;
+      try {
+        const again = await this._hass.callWS({ type: WS_GET_TTS_OPTIONS });
+        this._ttsPreviewMessage = again.preview_message || "";
+        this._ttsTomorrowTypes = again.tomorrow_types || [];
+      } catch {
+        /* ignore */
+      }
     } catch (e) {
       this._ttsSaveError =
         e?.message || String(e) || "Could not save settings";
@@ -208,24 +352,22 @@ class NycSanitationPanel extends HTMLElement {
     if (settingsBtn) {
       settingsBtn.onclick = () => this._openSettings();
     }
-    const modalBackdrop = this.shadowRoot.querySelector("#settings-modal");
-    const modalDialog = this.shadowRoot.querySelector("#settings-dialog");
-    if (modalDialog) {
-      modalDialog.onclick = (ev) => ev.stopPropagation();
-    }
-    if (modalBackdrop) {
-      modalBackdrop.onclick = (ev) => {
-        if (ev.target === modalBackdrop) this._closeSettings();
-      };
-    }
-    const cancelBtn = this.shadowRoot.querySelector("#tts-cancel");
-    if (cancelBtn) cancelBtn.onclick = () => this._closeSettings();
+    this.shadowRoot.querySelectorAll(".js-settings-back").forEach((btn) => {
+      btn.onclick = () => this._closeSettings();
+    });
     const saveBtn = this.shadowRoot.querySelector("#tts-save");
     if (saveBtn) saveBtn.onclick = (ev) => this._saveTtsSettings(ev);
     const testBtn = this.shadowRoot.querySelector("#tts-test");
     if (testBtn) testBtn.onclick = () => this._testTts();
-    const refreshNow = this.shadowRoot.querySelector("#refresh-now-btn");
-    if (refreshNow) refreshNow.onclick = () => this._loadData();
+    const refreshBtn = this.shadowRoot.querySelector("#refresh-now-btn");
+    if (refreshBtn) refreshBtn.onclick = () => this._reloadTtsAndCollection();
+    const volSlider = this.shadowRoot.querySelector("#tts-volume-slider");
+    const volLabel = this.shadowRoot.querySelector("#tts-volume-label");
+    if (volSlider && volLabel) {
+      volSlider.oninput = () => {
+        volLabel.textContent = String(Number(volSlider.value).toFixed(2));
+      };
+    }
   }
 
   _todayName() {
@@ -356,78 +498,211 @@ class NycSanitationPanel extends HTMLElement {
       .replace(/"/g, "&quot;");
   }
 
-  _renderSettingsModal() {
-    if (!this._settingsOpen) return "";
+  _hourOptions12(selected) {
+    let html = "";
+    for (let h = 1; h <= 12; h += 1) {
+      html += `<option value="${h}" ${h === selected ? "selected" : ""}>${h}</option>`;
+    }
+    return html;
+  }
 
+  _entitySelectOptions(entities, currentId) {
+    const rows = Array.isArray(entities) ? entities : [];
+    const seen = new Set();
+    let html = `<option value="">Select an entity…</option>`;
+    for (const row of rows) {
+      const id = row.entity_id || "";
+      seen.add(id);
+      const label = this._escape(row.name ? `${row.name} (${id})` : id);
+      const sel = id === currentId ? " selected" : "";
+      html += `<option value="${this._escape(id)}"${sel}>${label}</option>`;
+    }
+    if (currentId && !seen.has(currentId)) {
+      html += `<option value="${this._escape(currentId)}" selected>${this._escape(currentId)}</option>`;
+    }
+    return html;
+  }
+
+  _renderSettingsView() {
     const o = this._ttsOptions || {};
-    const enabled = o.tts_enabled === true;
-    const hour = Number.isFinite(o.announce_hour) ? o.announce_hour : 19;
-    const minute = Number.isFinite(o.announce_minute) ? o.announce_minute : 0;
-    const mp = this._escape(o.media_player_entity_id || "");
-    const tts = this._escape(o.tts_entity_id || "");
+    const startH = Number.isFinite(o.tts_window_start_hour)
+      ? o.tts_window_start_hour
+      : 12;
+    const endEx = Number.isFinite(o.tts_window_end_hour)
+      ? o.tts_window_end_hour
+      : 20;
+    const startParts = hour24to12Parts(startH);
+    const endParts = hourExclusiveEndToDisplayParts(endEx);
+    const interval = Number.isFinite(o.tts_interval_hours)
+      ? o.tts_interval_hours
+      : 1;
+    const minute = Number.isFinite(o.tts_minute_offset)
+      ? o.tts_minute_offset
+      : 0;
+    const mp = o.media_player_entity_id || "";
+    const tts = o.tts_entity_id || "";
     const vol =
       o.volume != null && o.volume !== ""
-        ? String(o.volume)
+        ? Math.min(1, Math.max(0, Number(o.volume)))
+        : 0.5;
+    const volumeApply = o.volume != null && o.volume !== "";
+    const ttsCache = o.tts_cache !== false;
+    const lang = this._escape(o.tts_language || "");
+    const optsJson =
+      o.tts_options && typeof o.tts_options === "object"
+        ? this._escape(JSON.stringify(o.tts_options, null, 2))
         : "";
 
-    const preview =
+    const previewTypes =
       this._ttsTomorrowTypes && this._ttsTomorrowTypes.length
         ? this._escape(this._ttsTomorrowTypes.join(", "))
         : "None (tomorrow)";
+    const previewMsg = this._escape(
+      this._ttsPreviewMessage || "(No pickup tomorrow or no preview)"
+    );
 
-    let body = "";
     if (this._ttsLoading) {
-      body = `<div class="muted center pad">Loading…</div>`;
-    } else if (this._ttsLoadError) {
-      body = `<div class="form-error pad">${this._escape(this._ttsLoadError)}</div>`;
-    } else {
-      body = `
-        <p class="muted small modal-lead">
-          Once per day at the time below, if tomorrow has a DSNY pickup, Home Assistant will announce it on the chosen media player (admin only).
+      return `<div class="settings-body muted center pad">Loading…</div>`;
+    }
+    if (this._ttsLoadError) {
+      return `<div class="settings-body"><div class="form-error pad">${this._escape(this._ttsLoadError)}</div>
+        <button type="button" class="btn secondary js-settings-back">Back</button></div>`;
+    }
+
+    const enabled = o.tts_enabled === true;
+    const i1 = interval === 1 ? "selected" : "";
+    const i2 = interval === 2 ? "selected" : "";
+    const i3 = interval === 3 ? "selected" : "";
+    const i4 = interval === 4 ? "selected" : "";
+    const startAm = startParts.ampm === "pm" ? "" : "selected";
+    const startPm = startParts.ampm === "pm" ? "selected" : "";
+    const endAm = endParts.ampm === "pm" ? "" : "selected";
+    const endPm = endParts.ampm === "pm" ? "selected" : "";
+
+    return `
+      <div class="settings-body">
+        <p class="muted small settings-lead">
+          When reminders are enabled, Home Assistant checks on a repeating schedule (within the time window). If <strong>tomorrow</strong> has a DSNY pickup, it waits until the media player is <strong>idle</strong>, sets volume (if set), waits for <strong>idle</strong> again, then calls <code>tts.speak</code> (admin only).
         </p>
-        <div class="preview-row muted small">Tomorrow’s collections (preview): <strong>${preview}</strong></div>
+        <div class="preview-block muted small">
+          <div>Tomorrow’s collections (preview): <strong>${previewTypes}</strong></div>
+          <div class="preview-msg">Spoken preview: <strong>${previewMsg}</strong></div>
+        </div>
+        <div class="form-error" id="tts-validation-error" style="display:${this._ttsValidationError ? "block" : "none"}">${this._ttsValidationError ? this._escape(this._ttsValidationError) : ""}</div>
         <form id="tts-form" class="tts-form">
           <label class="check-row">
             <input type="checkbox" id="tts-enabled" ${enabled ? "checked" : ""} />
-            <span>Enable day-before reminders</span>
+            <span>Enable reminders</span>
+          </label>
+
+          <fieldset class="fieldset">
+            <legend>Active window (local time)</legend>
+            <p class="muted small fieldset-hint">End time is the first time reminders stop (half-open interval). Example: 12 PM – 8 PM runs through 7:59 PM at your chosen minute.</p>
+            <div class="time-row">
+              <span class="time-label">Start</span>
+              <select id="tts-start-hour" aria-label="Start hour">${this._hourOptions12(startParts.h12)}</select>
+              <select id="tts-start-ampm" aria-label="Start AM or PM">
+                <option value="am" ${startAm}>AM</option>
+                <option value="pm" ${startPm}>PM</option>
+              </select>
+            </div>
+            <div class="time-row">
+              <span class="time-label">End</span>
+              <select id="tts-end-hour" aria-label="End hour">${this._hourOptions12(endParts.h12)}</select>
+              <select id="tts-end-ampm" aria-label="End AM or PM">
+                <option value="am" ${endAm}>AM</option>
+                <option value="pm" ${endPm}>PM</option>
+              </select>
+            </div>
+          </fieldset>
+
+          <div class="field-row">
+            <label for="tts-interval">Repeat every</label>
+            <select id="tts-interval">
+              <option value="1" ${i1}>1 hour</option>
+              <option value="2" ${i2}>2 hours</option>
+              <option value="3" ${i3}>3 hours</option>
+              <option value="4" ${i4}>4 hours</option>
+            </select>
+          </div>
+          <div class="field-row">
+            <label for="tts-minute-offset">Minute offset (0–59)</label>
+            <input type="number" id="tts-minute-offset" min="0" max="59" value="${minute}" />
+            <span class="muted small">Fires at this minute past each eligible hour (e.g. 32 → …:32).</span>
+          </div>
+
+          <div class="field-row">
+            <label for="tts-media-player">Media player</label>
+            <select id="tts-media-player">${this._entitySelectOptions(this._mediaPlayers, mp)}</select>
+          </div>
+          <div class="field-row">
+            <label for="tts-tts-entity">TTS engine</label>
+            <select id="tts-tts-entity">${this._entitySelectOptions(this._ttsEntities, tts)}</select>
+          </div>
+
+          <div class="field-row">
+            <label for="tts-volume-slider">Volume (0–1)</label>
+            <label class="check-row tight">
+              <input type="checkbox" id="tts-volume-apply" ${volumeApply ? "checked" : ""} />
+              <span>Apply volume before each announcement</span>
+            </label>
+            <div class="slider-row">
+              <input type="range" id="tts-volume-slider" min="0" max="1" step="0.01" value="${vol}" />
+              <span id="tts-volume-label" class="vol-label">${vol.toFixed(2)}</span>
+            </div>
+          </div>
+
+          <label class="check-row">
+            <input type="checkbox" id="tts-cache" ${ttsCache ? "checked" : ""} />
+            <span>Cache (tts.speak)</span>
           </label>
           <div class="field-row">
-            <label for="tts-hour">Hour (0–23)</label>
-            <input type="number" id="tts-hour" min="0" max="23" value="${hour}" />
+            <label for="tts-language">Language (optional)</label>
+            <input type="text" id="tts-language" placeholder="e.g. en" value="${lang}" autocomplete="off" />
           </div>
           <div class="field-row">
-            <label for="tts-minute">Minute (0–59)</label>
-            <input type="number" id="tts-minute" min="0" max="59" value="${minute}" />
+            <label for="tts-options-json">Options JSON (optional)</label>
+            <textarea id="tts-options-json" rows="4" placeholder='{}' spellcheck="false">${optsJson}</textarea>
+            <span class="muted small">Integration-specific options passed to <code>tts.speak</code>.</span>
           </div>
-          <div class="field-row">
-            <label for="tts-media-player">Media player entity</label>
-            <input type="text" id="tts-media-player" placeholder="media_player.living_room" value="${mp}" autocomplete="off" />
-          </div>
-          <div class="field-row">
-            <label for="tts-entity">TTS entity (optional)</label>
-            <input type="text" id="tts-entity" placeholder="Leave empty to auto-pick tts.*" value="${tts}" autocomplete="off" />
-          </div>
-          <div class="field-row">
-            <label for="tts-volume">Volume 0–1 (optional)</label>
-            <input type="text" id="tts-volume" placeholder="e.g. 0.4" value="${vol}" autocomplete="off" />
-          </div>
+
+          <fieldset class="fieldset">
+            <legend>Message templates</legend>
+            <p class="muted small">Placeholders: <code>{weekday}</code>, <code>{types}</code>, <code>{types_sentence}</code>, <code>{type}</code></p>
+            <div class="field-row">
+              <label for="tts-prefix">Prefix</label>
+              <input type="text" id="tts-prefix" value="${this._escape(o.tts_message_prefix || "")}" autocomplete="off" />
+            </div>
+            <div class="field-row">
+              <label for="tts-msg-trash">Trash only</label>
+              <textarea id="tts-msg-trash" rows="2" spellcheck="false">${this._escape(o.tts_message_trash || "")}</textarea>
+            </div>
+            <div class="field-row">
+              <label for="tts-msg-recycling">Recycling only</label>
+              <textarea id="tts-msg-recycling" rows="2" spellcheck="false">${this._escape(o.tts_message_recycling || "")}</textarea>
+            </div>
+            <div class="field-row">
+              <label for="tts-msg-compost">Compost only</label>
+              <textarea id="tts-msg-compost" rows="2" spellcheck="false">${this._escape(o.tts_message_compost || "")}</textarea>
+            </div>
+            <div class="field-row">
+              <label for="tts-msg-large">Large items only</label>
+              <textarea id="tts-msg-large" rows="2" spellcheck="false">${this._escape(o.tts_message_large_items || "")}</textarea>
+            </div>
+            <div class="field-row">
+              <label for="tts-msg-mixed">Multiple types</label>
+              <textarea id="tts-msg-mixed" rows="2" spellcheck="false">${this._escape(o.tts_message_mixed || "")}</textarea>
+            </div>
+          </fieldset>
+
           ${this._ttsSaveError ? `<div class="form-error">${this._escape(this._ttsSaveError)}</div>` : ""}
           ${this._ttsTestError ? `<div class="form-error">${this._escape(this._ttsTestError)}</div>` : ""}
         </form>
-        <div class="modal-actions">
-          <button type="button" class="btn secondary" id="refresh-now-btn">Refresh schedule now</button>
+        <div class="settings-actions">
+          <button type="button" class="btn secondary" id="refresh-now-btn">Refresh schedule</button>
           <button type="button" class="btn secondary" id="tts-test">Test announcement</button>
-          <button type="button" class="btn secondary" id="tts-cancel">Cancel</button>
+          <button type="button" class="btn secondary js-settings-back">Back</button>
           <button type="button" class="btn primary" id="tts-save">Save</button>
-        </div>
-      `;
-    }
-
-    return `
-      <div class="modal-backdrop" id="settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-title">
-        <div class="modal-dialog" id="settings-dialog">
-          <h2 id="settings-title">TTS reminder settings</h2>
-          ${body}
         </div>
       </div>
     `;
@@ -436,13 +711,37 @@ class NycSanitationPanel extends HTMLElement {
   _render() {
     const title = "NYC Sanitation";
     const admin = this._isAdmin();
-    const settingsBtn = admin
-      ? `
+    const onSettings = this._view === "settings";
+
+    const settingsBtn =
+      admin && !onSettings
+        ? `
           <button class="icon-btn" id="settings-btn" type="button" title="Settings" aria-label="Settings">
             <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor" aria-hidden="true"><path d="M12,15.5A3.5,3.5 0 0,1 8.5,12A3.5,3.5 0 0,1 12,8.5A3.5,3.5 0 0,1 15.5,12A3.5,3.5 0 0,1 12,15.5M19.43,12.97C19.47,12.65 19.5,12.33 19.5,12C19.5,11.67 19.47,11.34 19.43,11L21.54,9.37C21.73,9.22 21.78,8.95 21.66,8.73L19.66,5.27C19.54,5.05 19.27,4.96 19.05,5.05L16.56,6.05C16.04,5.66 15.5,5.32 14.87,5.07L14.5,2.42C14.46,2.18 14.25,2 14,2H10C9.75,2 9.54,2.18 9.5,2.42L9.13,5.07C8.5,5.32 7.96,5.66 7.44,6.05L4.95,5.05C4.73,4.96 4.46,5.05 4.34,5.27L2.34,8.73C2.21,8.95 2.27,9.22 2.46,9.37L4.57,11C4.53,11.34 4.5,11.67 4.5,12C4.5,12.33 4.53,12.65 4.57,12.97L2.46,14.63C2.27,14.78 2.21,15.05 2.34,15.27L4.34,18.73C4.46,18.95 4.73,19.03 4.95,18.95L7.44,17.94C7.96,18.34 8.5,18.68 9.13,18.93L9.5,21.58C9.54,21.82 9.75,22 10,22H14C14.25,22 14.46,21.82 14.5,21.58L14.87,18.93C15.5,18.68 16.04,18.34 16.56,17.94L19.05,18.95C19.27,19.03 19.54,18.95 19.66,18.73L21.66,15.27C21.78,15.05 21.73,14.78 21.54,14.63L19.43,12.97Z"/></svg>
           </button>
         `
+        : "";
+
+    const backBtn =
+      onSettings && admin
+        ? `
+        <button class="icon-btn js-settings-back" type="button" title="Back" aria-label="Back">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor" aria-hidden="true"><path d="M20,11V13H8L13.5,18.5L12.08,19.92L4.16,12L12.08,4.08L13.5,5.5L8,11H20Z"/></svg>
+        </button>`
+        : "";
+
+    const toolbarTitle = onSettings ? "TTS settings" : title;
+
+    const mainContent = !onSettings
+      ? `
+        <div class="content">
+          ${this._renderMeta()}
+          ${this._renderWeekly()}
+          ${this._renderRouting()}
+        </div>`
       : "";
+
+    const settingsContent = onSettings && admin ? this._renderSettingsView() : "";
 
     this.shadowRoot.innerHTML = `
       <style>
@@ -512,6 +811,15 @@ class NycSanitationPanel extends HTMLElement {
           flex: 1;
           overflow: auto;
         }
+        .settings-scroll {
+          flex: 1;
+          overflow: auto;
+          padding: 16px;
+        }
+        .settings-body { max-width: 640px; margin: 0 auto; }
+        .settings-lead { margin: 0 0 12px; }
+        .preview-block { margin-bottom: 16px; line-height: 1.5; }
+        .preview-msg { margin-top: 8px; }
         .meta { margin-bottom: 16px; }
         .addr { font-weight: 500; margin-bottom: 4px; }
         .muted { color: var(--secondary-text-color); }
@@ -614,36 +922,6 @@ class NycSanitationPanel extends HTMLElement {
           color: var(--secondary-text-color);
           font-size: 13px;
         }
-        .modal-backdrop {
-          position: fixed;
-          inset: 0;
-          background: rgba(0,0,0,0.45);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          z-index: 100;
-          padding: 16px;
-          box-sizing: border-box;
-        }
-        .modal-dialog {
-          background: var(--card-background-color, var(--primary-background-color));
-          color: var(--primary-text-color);
-          border-radius: 12px;
-          border: 1px solid var(--divider-color);
-          max-width: 440px;
-          width: 100%;
-          max-height: 90vh;
-          overflow: auto;
-          padding: 20px;
-          box-shadow: 0 8px 32px rgba(0,0,0,0.2);
-        }
-        .modal-dialog h2 {
-          margin: 0 0 12px;
-          font-size: 1.15rem;
-          font-weight: 600;
-        }
-        .modal-lead { margin: 0 0 12px; }
-        .preview-row { margin-bottom: 16px; }
         .tts-form .field-row {
           display: flex;
           flex-direction: column;
@@ -652,7 +930,9 @@ class NycSanitationPanel extends HTMLElement {
         }
         .tts-form label { font-size: 13px; font-weight: 500; }
         .tts-form input[type="text"],
-        .tts-form input[type="number"] {
+        .tts-form input[type="number"],
+        .tts-form select,
+        .tts-form textarea {
           padding: 10px 12px;
           border-radius: 8px;
           border: 1px solid var(--divider-color);
@@ -662,6 +942,31 @@ class NycSanitationPanel extends HTMLElement {
           min-height: 44px;
           box-sizing: border-box;
         }
+        .tts-form textarea { min-height: 72px; font-family: inherit; }
+        .fieldset {
+          border: 1px solid var(--divider-color);
+          border-radius: 10px;
+          padding: 12px;
+          margin-bottom: 16px;
+        }
+        .fieldset legend { padding: 0 6px; font-weight: 600; }
+        .fieldset-hint { margin: 0 0 10px; }
+        .time-row {
+          display: flex;
+          flex-wrap: wrap;
+          align-items: center;
+          gap: 8px;
+          margin-bottom: 10px;
+        }
+        .time-label { min-width: 48px; font-weight: 500; }
+        .time-row select { min-height: 44px; }
+        .slider-row {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+        }
+        .slider-row input[type="range"] { flex: 1; min-height: 44px; }
+        .vol-label { min-width: 40px; font-variant-numeric: tabular-nums; }
         .check-row {
           display: flex;
           align-items: center;
@@ -671,17 +976,19 @@ class NycSanitationPanel extends HTMLElement {
           min-height: 44px;
         }
         .check-row input { width: 18px; height: 18px; }
+        .check-row.tight { margin-bottom: 8px; min-height: 36px; }
         .form-error {
           color: var(--error-color, #db4437);
           font-size: 13px;
           margin: 8px 0;
         }
-        .modal-actions {
+        .settings-actions {
           display: flex;
           flex-wrap: wrap;
           gap: 8px;
           justify-content: flex-end;
-          margin-top: 16px;
+          margin-top: 20px;
+          padding-bottom: 24px;
         }
         .btn {
           min-height: 44px;
@@ -708,16 +1015,13 @@ class NycSanitationPanel extends HTMLElement {
           <button class="menu-btn" id="menu-btn" type="button" title="Menu" aria-label="Menu">
             <svg viewBox="0 0 24 24"><path d="M3,6H21V8H3V6M3,11H21V13H3V11M3,16H21V18H3V16Z"/></svg>
           </button>
-          <h1>${title}</h1>
+          ${backBtn}
+          <h1>${toolbarTitle}</h1>
           ${settingsBtn}
         </div>
-        <div class="content">
-          ${this._renderMeta()}
-          ${this._renderWeekly()}
-          ${this._renderRouting()}
-        </div>
+        ${mainContent}
+        ${onSettings && admin ? `<div class="settings-scroll">${settingsContent}</div>` : ""}
       </div>
-      ${this._renderSettingsModal()}
     `;
     this._attachListeners();
   }

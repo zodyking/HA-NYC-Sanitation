@@ -33,11 +33,24 @@ WS_TYPE_TEST_TTS = f"{DOMAIN}/test_tts"
 
 DEFAULT_TTS_OPTIONS = {
     "tts_enabled": False,
-    "announce_hour": 19,
-    "announce_minute": 0,
+    "tts_window_start_hour": 12,
+    "tts_window_end_hour": 20,
+    "tts_interval_hours": 1,
+    "tts_minute_offset": 0,
     "media_player_entity_id": "",
     "tts_entity_id": "",
     "volume": None,
+    "tts_cache": True,
+    "tts_language": "",
+    "tts_options": None,
+    "tts_message_prefix": "Message from New York City Sanitation,",
+    "tts_message_trash": "Tomorrow, {weekday}, is Trash collection day.",
+    "tts_message_recycling": "Tomorrow, {weekday}, is Recycling collection day.",
+    "tts_message_compost": "Tomorrow, {weekday}, is Compost collection day.",
+    "tts_message_large_items": "Tomorrow, {weekday}, is Large items collection day.",
+    "tts_message_mixed": (
+        "Tomorrow, {weekday}, sanitation collections include {types_sentence}."
+    ),
 }
 
 DEFAULT_TTS_LANGUAGE = "en"

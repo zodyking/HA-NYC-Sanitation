@@ -2,7 +2,7 @@
 
 Custom integration for **NYC Department of Sanitation (DSNY)** collection schedules: a **sidebar panel** (weekly view + routing times), reverse geocoding from your home coordinates, **one binary sensor** for pickups tomorrow, and **two sensors** for the next two pickup dates (types in attributes).
 
-**Current release:** `1.3.3` — setup via **Settings → Devices & services** (config flow).  
+**Current release:** `1.4.0` — setup via **Settings → Devices & services** (config flow).  
 Repository: [github.com/zodyking/HA-NYC-Sanitation](https://github.com/zodyking/HA-NYC-Sanitation)
 
 [![HACS Custom](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://github.com/hacs/integration)
@@ -54,13 +54,46 @@ Remove `nyc_sanitation:` from `configuration.yaml`, restart if needed, then add 
 
 ## TTS reminders (day before pickup)
 
-Administrators can open the **Sanitation** sidebar panel and use the **settings (cog)** to configure optional **text-to-speech** reminders.
+Administrators open the **Sanitation** sidebar panel and use the **settings (cog)** to open the full-page **TTS settings** view.
 
-- **When it runs:** Once per day at the **local time** you choose (Home Assistant time zone). If **tomorrow** has any DSNY collection type (trash, recycling, compost, or large items), HA speaks a short announcement on the **media player** you pick.
-- **Requirements:** A working **`media_player`** and a **`tts.*`** entity (you can leave the TTS field empty to auto-select the first `tts` entity). Optional **volume** (0–1) is applied before speaking.
-- **Test:** Use **Test announcement** in the same dialog to verify entity IDs without waiting for the schedule.
+### When it runs
 
-Backend polling of the DSNY API is at most **once per hour**; the panel refreshes its view about **once per minute** so the UI stays stable while other entities update.
+- Uses your Home Assistant **time zone**.
+- On each **minute offset** you choose (e.g. `:32` every hour), the integration checks whether the current **local hour** is inside the **active window**.
+- **Window:** **Start** and **End** use 12-hour times. **End** is the first clock time when reminders **stop** (half-open interval): active hours satisfy `start_hour ≤ H < end_hour`. Example: **12 PM → 8 PM** means hours **12–19** only (nothing in the 8:00–9:00 PM hour). If **End** is **12:00 AM**, it is stored as “through end of day” (all hours `0–23` for that calendar day).
+- **Repeat every:** eligible hours are **start**, **start + N hours**, **start + 2N…** while still inside the window (N = 1, 2, 3, or 4).
+- If **tomorrow** has any DSNY collection type, HA builds the spoken message from your **prefix** and templates, then:
+  1. Waits until the **media player** state is **`idle`** (with a timeout),
+  2. Optionally calls **`media_player.volume_set`** (if “Apply volume” is enabled),
+  3. Waits for **`idle`** again,
+  4. Calls **`tts.speak`** with your **TTS engine** as **target**, **`media_player_entity_id`**, **`message`**, **`cache`**, and optional **language** / **options** (same shape as the Developer Tools **Speak** action).
+
+Each matching tick can announce again (no “once per calendar day” cap), so choose a window and interval that match how often you want reminders.
+
+### Message templates and placeholders
+
+- **Prefix** (default: `Message from New York City Sanitation,`) is prepended to the **body** template.
+- **Body** is chosen from the **single-type** template matching tomorrow’s only type, or from **Multiple types** when there is more than one.
+- Placeholders in templates: **`{weekday}`** (tomorrow’s weekday name), **`{types}`** (comma-separated), **`{types_sentence}`** (e.g. `Trash, Recycling, and Compost`), **`{type}`** (single-type shortcut; when multiple, same as `{types}`).
+
+### Default spoken examples (if you keep default templates)
+
+| Situation | Example announcement |
+|-----------|------------------------|
+| Tomorrow is **Trash** only | “Message from New York City Sanitation, Tomorrow, Wednesday, is Trash collection day.” |
+| Tomorrow is **Recycling** only | Same pattern with “Recycling collection day.” |
+| Tomorrow is **Compost** only | Same pattern with “Compost collection day.” |
+| Tomorrow is **Large items** only | Same pattern with “Large items collection day.” |
+| Tomorrow has **several** types | “Message from New York City Sanitation, Tomorrow, Wednesday, sanitation collections include Trash, Recycling, and Compost.” |
+
+(Exact wording depends on your templates and the real weekday / types from DSNY.)
+
+### Requirements
+
+- **Media player** and **TTS engine** (`tts.*`) are **required** when reminders are enabled (pick from the dropdowns populated from your HA state).
+- **Test announcement** uses the same idle → optional volume → idle → **`tts.speak`** path with a fixed test phrase.
+
+Backend polling of the DSNY API is at most **once per hour**; the panel refreshes its main view about **once per minute**.
 
 ## Troubleshooting
 

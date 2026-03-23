@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import calendar
+import json
+from datetime import timedelta
 from typing import Any
 
 import voluptuous as vol
@@ -20,6 +23,7 @@ from .const import (
 from .coordinator import DSNYCoordinator
 from .parse import collection_types_tomorrow
 from .tts_helper import async_send_tts
+from .tts_messages import build_tts_message
 from .tts_schedule import async_setup_tts_schedule, merge_tts_options
 
 
@@ -55,6 +59,37 @@ def _get_entry(hass: HomeAssistant) -> ConfigEntry | None:
     if not entry_id:
         return None
     return hass.config_entries.async_get_entry(entry_id)
+
+
+def _entity_summaries(hass: HomeAssistant, prefix: str) -> list[dict[str, str]]:
+    rows: list[tuple[str, str]] = []
+    for state in hass.states.async_all():
+        eid = state.entity_id
+        if not eid.startswith(prefix):
+            continue
+        name = state.attributes.get("friendly_name") or eid
+        rows.append((eid, str(name)))
+    rows.sort(key=lambda x: x[1].lower())
+    return [{"entity_id": eid, "name": name} for eid, name in rows]
+
+
+def _coerce_tts_options(value: Any) -> dict[str, Any] | None:
+    if value is None:
+        return None
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str):
+        stripped = value.strip()
+        if not stripped:
+            return None
+        try:
+            parsed = json.loads(stripped)
+        except json.JSONDecodeError as err:
+            raise vol.Invalid(f"Invalid JSON for tts_options: {err}") from err
+        if not isinstance(parsed, dict):
+            raise vol.Invalid("tts_options JSON must be an object")
+        return parsed
+    raise vol.Invalid("tts_options must be an object, JSON string, or null")
 
 
 @websocket_api.websocket_command({vol.Required("type"): WS_TYPE_GET_COLLECTION})
@@ -119,7 +154,7 @@ async def websocket_get_tts_options(
     connection: websocket_api.ActiveConnection,
     msg: dict[str, Any],
 ) -> None:
-    """Return TTS options and a preview of tomorrow's collection types (admin only)."""
+    """Return TTS options, entity lists, and a preview message (admin only)."""
     if not _require_admin(hass, connection, msg["id"]):
         return
 
@@ -131,18 +166,25 @@ async def websocket_get_tts_options(
     opts = merge_tts_options(entry)
     coordinator: DSNYCoordinator | None = hass.data.get(DOMAIN, {}).get("coordinator")
     tomorrow_types: list[str] = []
+    preview_message = ""
     if coordinator and coordinator.data and coordinator.data.get("nyc_valid"):
         payload = coordinator.data.get("payload")
         if isinstance(payload, dict):
-            tomorrow_types = collection_types_tomorrow(
-                payload, dt_util.as_local(dt_util.now())
-            )
+            local_now = dt_util.as_local(dt_util.now())
+            tomorrow_types = collection_types_tomorrow(payload, local_now)
+            if tomorrow_types:
+                tw = local_now + timedelta(days=1)
+                wname = calendar.day_name[tw.weekday()]
+                preview_message = build_tts_message(opts, tomorrow_types, wname)
 
     connection.send_result(
         msg["id"],
         {
             "options": opts,
             "tomorrow_types": tomorrow_types,
+            "preview_message": preview_message,
+            "media_players": _entity_summaries(hass, "media_player."),
+            "tts_entities": _entity_summaries(hass, "tts."),
         },
     )
 
@@ -151,13 +193,24 @@ async def websocket_get_tts_options(
     {
         vol.Required("type"): WS_TYPE_SET_TTS_OPTIONS,
         vol.Required("tts_enabled"): bool,
-        vol.Required("announce_hour"): vol.All(int, vol.Range(min=0, max=23)),
-        vol.Required("announce_minute"): vol.All(int, vol.Range(min=0, max=59)),
+        vol.Required("tts_window_start_hour"): vol.All(int, vol.Range(min=0, max=23)),
+        vol.Required("tts_window_end_hour"): vol.All(int, vol.Range(min=1, max=24)),
+        vol.Required("tts_interval_hours"): vol.All(int, vol.In([1, 2, 3, 4])),
+        vol.Required("tts_minute_offset"): vol.All(int, vol.Range(min=0, max=59)),
         vol.Required("media_player_entity_id"): str,
-        vol.Optional("tts_entity_id", default=""): str,
+        vol.Required("tts_entity_id"): str,
         vol.Optional("volume", default=None): vol.Any(
             None, vol.All(vol.Coerce(float), vol.Range(min=0, max=1))
         ),
+        vol.Required("tts_cache"): bool,
+        vol.Optional("tts_language", default=""): str,
+        vol.Optional("tts_options", default=None): vol.Any(None, dict, str),
+        vol.Optional("tts_message_prefix", default=""): str,
+        vol.Optional("tts_message_trash", default=""): str,
+        vol.Optional("tts_message_recycling", default=""): str,
+        vol.Optional("tts_message_compost", default=""): str,
+        vol.Optional("tts_message_large_items", default=""): str,
+        vol.Optional("tts_message_mixed", default=""): str,
     }
 )
 @websocket_api.async_response
@@ -175,29 +228,67 @@ async def websocket_set_tts_options(
         connection.send_error(msg["id"], "not_ready", "NYC Sanitation is not loaded")
         return
 
-    media_player = msg["media_player_entity_id"].strip()
-    if msg["tts_enabled"] and not media_player:
+    start_h = msg["tts_window_start_hour"]
+    end_h = msg["tts_window_end_hour"]
+    if start_h >= end_h:
         connection.send_error(
             msg["id"],
             "invalid_options",
-            "Media player entity is required when TTS reminders are enabled.",
+            "Start time must be before end time (same calendar day).",
         )
         return
+
+    try:
+        coerced_opts = _coerce_tts_options(msg.get("tts_options"))
+    except vol.Invalid as err:
+        connection.send_error(msg["id"], "invalid_options", str(err))
+        return
+
+    media_player = msg["media_player_entity_id"].strip()
+    tts_entity = msg["tts_entity_id"].strip()
+    if msg["tts_enabled"]:
+        if not media_player:
+            connection.send_error(
+                msg["id"],
+                "invalid_options",
+                "Media player entity is required when TTS reminders are enabled.",
+            )
+            return
+        if not tts_entity:
+            connection.send_error(
+                msg["id"],
+                "invalid_options",
+                "TTS engine entity is required when TTS reminders are enabled.",
+            )
+            return
 
     new_opts = merge_tts_options(entry)
     new_opts.update(
         {
             "tts_enabled": msg["tts_enabled"],
-            "announce_hour": msg["announce_hour"],
-            "announce_minute": msg["announce_minute"],
+            "tts_window_start_hour": start_h,
+            "tts_window_end_hour": end_h,
+            "tts_interval_hours": msg["tts_interval_hours"],
+            "tts_minute_offset": msg["tts_minute_offset"],
             "media_player_entity_id": media_player,
-            "tts_entity_id": (msg.get("tts_entity_id") or "").strip(),
+            "tts_entity_id": tts_entity,
             "volume": msg.get("volume"),
+            "tts_cache": msg["tts_cache"],
+            "tts_language": (msg.get("tts_language") or "").strip(),
+            "tts_options": coerced_opts,
+            "tts_message_prefix": msg.get("tts_message_prefix") or "",
+            "tts_message_trash": msg.get("tts_message_trash") or "",
+            "tts_message_recycling": msg.get("tts_message_recycling") or "",
+            "tts_message_compost": msg.get("tts_message_compost") or "",
+            "tts_message_large_items": msg.get("tts_message_large_items") or "",
+            "tts_message_mixed": msg.get("tts_message_mixed") or "",
         }
     )
     hass.config_entries.async_update_entry(entry, options=new_opts)
     await async_setup_tts_schedule(hass, entry)
-    connection.send_result(msg["id"], {"success": True, "options": merge_tts_options(entry)})
+    connection.send_result(
+        msg["id"], {"success": True, "options": merge_tts_options(entry)}
+    )
 
 
 @websocket_api.websocket_command(
@@ -220,13 +311,18 @@ async def websocket_test_tts(
 
     opts = merge_tts_options(entry)
     media_player = (opts.get("media_player_entity_id") or "").strip()
+    tts_entity = (opts.get("tts_entity_id") or "").strip()
     if not media_player:
         connection.send_error(
             msg["id"], "invalid_options", "Set a media player entity in TTS settings."
         )
         return
+    if not tts_entity:
+        connection.send_error(
+            msg["id"], "invalid_options", "Set a TTS engine entity in TTS settings."
+        )
+        return
 
-    tts_entity = (opts.get("tts_entity_id") or "").strip() or None
     volume = opts.get("volume")
     vol_f: float | None
     if volume is None or volume == "":
@@ -237,13 +333,22 @@ async def websocket_test_tts(
         except (TypeError, ValueError):
             vol_f = None
 
+    lang_raw = opts.get("tts_language")
+    language = (str(lang_raw).strip() if lang_raw is not None else "") or None
+    cache = bool(opts.get("tts_cache", True))
+    extra = opts.get("tts_options")
+    tts_options = extra if isinstance(extra, dict) else None
+
     try:
         await async_send_tts(
             hass,
             media_player,
             "NYC Sanitation test: text to speech is working.",
+            language=language,
             volume=vol_f,
             tts_entity=tts_entity,
+            cache=cache,
+            options=tts_options,
             blocking=False,
         )
     except Exception as err:
