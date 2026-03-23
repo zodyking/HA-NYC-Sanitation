@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import calendar
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 from .const import NYC_BOROUGH_CODES, NYC_BOROUGH_NAMES
@@ -87,3 +87,42 @@ def collection_types_today(data: dict[str, Any], now: datetime) -> list[str]:
 def trash_due_today(data: dict[str, Any], now: datetime) -> bool:
     day = calendar.day_name[now.weekday()]
     return day in _parse_day_set(data.get("RegularCollectionSchedule"))
+
+
+def collection_types_on_date(data: dict[str, Any], dt: datetime) -> list[str]:
+    """Collection types for the weekday of *dt* (local), from a DSNY payload dict."""
+    day = calendar.day_name[dt.weekday()]
+    types: list[str] = []
+    if day in _parse_day_set(data.get("RegularCollectionSchedule")):
+        types.append("Trash")
+    if day in _parse_day_set(data.get("RecyclingCollectionSchedule")):
+        types.append("Recycling")
+    if day in _parse_day_set(data.get("OrganicsCollectionSchedule")):
+        types.append("Compost")
+    if day in _parse_day_set(data.get("BulkPickupCollectionSchedule")):
+        types.append("Large items")
+    return types
+
+
+def collection_types_tomorrow(data: dict[str, Any], now: datetime) -> list[str]:
+    """Collection types scheduled for the calendar day after *now* (same tz semantics as *now*)."""
+    return collection_types_on_date(data, now + timedelta(days=1))
+
+
+def is_pickup_today_for_type(
+    data: dict[str, Any], now: datetime, collection_label: str
+) -> bool:
+    """True when *collection_label* is collected on the calendar day of *now*."""
+    return collection_label in collection_types_today(data, now)
+
+
+def is_put_out_window_for_type(
+    data: dict[str, Any], now: datetime, collection_label: str
+) -> bool:
+    """True on the day before curbside pickup and on pickup day (overnight set-out pattern).
+
+    ON when *collection_label* is scheduled **today** or **tomorrow** in *now*'s local calendar.
+    """
+    return collection_label in collection_types_today(
+        data, now
+    ) or collection_label in collection_types_tomorrow(data, now)

@@ -1,8 +1,8 @@
-"""Binary sensors: curbside window (night before + pickup day) and pickup day per stream."""
+"""Sensors with human-readable schedule text and shared diagnostics."""
 
 from __future__ import annotations
 
-from homeassistant.components.binary_sensor import BinarySensorEntity
+from homeassistant.components.sensor import SensorEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import DeviceInfo
@@ -19,19 +19,11 @@ from .const import (
     DOMAIN,
 )
 from .coordinator import DSNYCoordinator
-from .parse import (
-    collection_types_today,
-    collection_types_tomorrow,
-    is_pickup_today_for_type,
-    is_put_out_window_for_type,
-)
+from .parse import collection_types_today, collection_types_tomorrow
 
-STREAMS: tuple[tuple[str, str, str], ...] = (
-    ("trash", "Trash", "mdi:trash-can"),
-    ("recycling", "Recycling", "mdi:recycle"),
-    ("compost", "Compost", "mdi:leaf"),
-    ("large_items", "Large items", "mdi:table-furniture"),
-)
+
+def _join_types(types: list[str]) -> str:
+    return ", ".join(types) if types else "None"
 
 
 async def async_setup_entry(
@@ -39,39 +31,34 @@ async def async_setup_entry(
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Set up collection binary sensors."""
+    """Set up text sensors for today's and tomorrow's collections."""
     coordinator: DSNYCoordinator = hass.data[DOMAIN]["coordinator"]
-    entities: list[CollectionStreamBinarySensor] = []
-    for stream_key, label, icon in STREAMS:
-        entities.append(
-            CollectionStreamBinarySensor(
+    async_add_entities(
+        [
+            CollectionsSummarySensor(
                 coordinator,
                 entry,
-                translation_key=f"{stream_key}_put_out",
-                unique_id_suffix=f"{stream_key}_put_out",
-                collection_label=label,
-                put_out_window=True,
-                icon=icon,
-            )
-        )
-        entities.append(
-            CollectionStreamBinarySensor(
+                translation_key="collections_today",
+                unique_id_suffix="collections_today",
+                tomorrow=False,
+            ),
+            CollectionsSummarySensor(
                 coordinator,
                 entry,
-                translation_key=f"{stream_key}_pickup_today",
-                unique_id_suffix=f"{stream_key}_pickup_today",
-                collection_label=label,
-                put_out_window=False,
-                icon=icon,
-            )
-        )
-    async_add_entities(entities, True)
+                translation_key="collections_tomorrow",
+                unique_id_suffix="collections_tomorrow",
+                tomorrow=True,
+            ),
+        ],
+        True,
+    )
 
 
-class CollectionStreamBinarySensor(
-    CoordinatorEntity[DSNYCoordinator], BinarySensorEntity
-):
-    """One stream: either curbside window or pickup-day-only."""
+class CollectionsSummarySensor(CoordinatorEntity[DSNYCoordinator], SensorEntity):
+    """Comma-separated list of collection types for today or tomorrow."""
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:calendar-text"
 
     def __init__(
         self,
@@ -80,18 +67,13 @@ class CollectionStreamBinarySensor(
         *,
         translation_key: str,
         unique_id_suffix: str,
-        collection_label: str,
-        put_out_window: bool,
-        icon: str,
+        tomorrow: bool,
     ) -> None:
         super().__init__(coordinator)
         self._entry = entry
-        self._collection_label = collection_label
-        self._put_out_window = put_out_window
+        self._tomorrow = tomorrow
         self._attr_translation_key = translation_key
         self._attr_unique_id = f"{DOMAIN}_{unique_id_suffix}"
-        self._attr_has_entity_name = True
-        self._attr_icon = icon
 
     @property
     def device_info(self) -> DeviceInfo:
@@ -110,15 +92,15 @@ class CollectionStreamBinarySensor(
         return bool(data.get("nyc_valid") and data.get("payload"))
 
     @property
-    def is_on(self) -> bool | None:
+    def native_value(self) -> str | None:
         if not self.available:
             return None
         payload = self.coordinator.data["payload"]
         assert isinstance(payload, dict)
         now = dt_util.now()
-        if self._put_out_window:
-            return is_put_out_window_for_type(payload, now, self._collection_label)
-        return is_pickup_today_for_type(payload, now, self._collection_label)
+        if self._tomorrow:
+            return _join_types(collection_types_tomorrow(payload, now))
+        return _join_types(collection_types_today(payload, now))
 
     @property
     def extra_state_attributes(self) -> dict:

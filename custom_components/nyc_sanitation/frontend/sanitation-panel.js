@@ -1,7 +1,13 @@
 /**
  * NYC Sanitation — Home Assistant sidebar panel
  */
-const WS_TYPE = "nyc_sanitation/get_collection_data";
+const WS_GET_COLLECTION = "nyc_sanitation/get_collection_data";
+const WS_GET_TTS_OPTIONS = "nyc_sanitation/get_tts_options";
+const WS_SET_TTS_OPTIONS = "nyc_sanitation/set_tts_options";
+const WS_TEST_TTS = "nyc_sanitation/test_tts";
+
+const POLL_MS = 60_000;
+
 const WEEK_ORDER = [
   "Monday",
   "Tuesday",
@@ -12,6 +18,13 @@ const WEEK_ORDER = [
   "Sunday",
 ];
 
+/** Next weekday in Mon→Sun cycle (Sunday wraps to Monday). */
+function nextWeekdayInOrder(day) {
+  const i = WEEK_ORDER.indexOf(day);
+  if (i < 0) return null;
+  return WEEK_ORDER[(i + 1) % WEEK_ORDER.length];
+}
+
 class NycSanitationPanel extends HTMLElement {
   constructor() {
     super();
@@ -20,15 +33,30 @@ class NycSanitationPanel extends HTMLElement {
     this._panel = null;
     this._data = null;
     this._loading = true;
+    this._pollTimer = null;
+    this._didInitialLoad = false;
+    this._settingsOpen = false;
+    this._ttsLoading = false;
+    this._ttsOptions = null;
+    this._ttsTomorrowTypes = [];
+    this._ttsLoadError = null;
+    this._ttsSaveError = null;
+    this._ttsTestError = null;
   }
 
   set hass(hass) {
-    const prev = this._hass;
     this._hass = hass;
-    if (hass && hass !== prev) {
+    if (!this.isConnected) return;
+    if (!this._pollTimer) {
+      this._pollTimer = setInterval(() => this._loadData(), POLL_MS);
+    }
+    if (hass && !this._didInitialLoad) {
+      this._didInitialLoad = true;
       this._loadData();
     }
-    this._render();
+    if (!this._settingsOpen) {
+      this._render();
+    }
   }
 
   set panel(panel) {
@@ -37,17 +65,32 @@ class NycSanitationPanel extends HTMLElement {
 
   connectedCallback() {
     this._render();
-    if (this._hass) {
+    if (!this._pollTimer) {
+      this._pollTimer = setInterval(() => this._loadData(), POLL_MS);
+    }
+    if (this._hass && !this._didInitialLoad) {
+      this._didInitialLoad = true;
       this._loadData();
     }
+  }
+
+  disconnectedCallback() {
+    if (this._pollTimer != null) {
+      clearInterval(this._pollTimer);
+      this._pollTimer = null;
+    }
+    this._didInitialLoad = false;
+    this._settingsOpen = false;
   }
 
   async _loadData() {
     if (!this._hass) return;
     this._loading = true;
-    this._render();
+    if (!this._settingsOpen) {
+      this._render();
+    }
     try {
-      this._data = await this._hass.callWS({ type: WS_TYPE });
+      this._data = await this._hass.callWS({ type: WS_GET_COLLECTION });
     } catch (e) {
       console.error("NYC Sanitation panel WS error", e);
       this._data = {
@@ -58,8 +101,97 @@ class NycSanitationPanel extends HTMLElement {
       };
     } finally {
       this._loading = false;
+      if (!this._settingsOpen) {
+        this._render();
+      }
+    }
+  }
+
+  _isAdmin() {
+    return this._hass?.user?.is_admin === true;
+  }
+
+  async _openSettings() {
+    if (!this._hass || !this._isAdmin()) return;
+    this._settingsOpen = true;
+    this._ttsLoading = true;
+    this._ttsLoadError = null;
+    this._ttsSaveError = null;
+    this._ttsTestError = null;
+    this._ttsOptions = null;
+    this._render();
+    try {
+      const res = await this._hass.callWS({ type: WS_GET_TTS_OPTIONS });
+      this._ttsOptions = res.options || {};
+      this._ttsTomorrowTypes = res.tomorrow_types || [];
+    } catch (e) {
+      this._ttsLoadError =
+        e?.message || String(e) || "Could not load TTS settings";
+      console.error("NYC Sanitation get_tts_options", e);
+    } finally {
+      this._ttsLoading = false;
       this._render();
     }
+  }
+
+  _closeSettings() {
+    this._settingsOpen = false;
+    this._ttsLoadError = null;
+    this._ttsSaveError = null;
+    this._ttsTestError = null;
+    this._render();
+  }
+
+  async _saveTtsSettings(ev) {
+    ev?.preventDefault?.();
+    if (!this._hass) return;
+    const root = this.shadowRoot;
+    const enabled = root.querySelector("#tts-enabled")?.checked === true;
+    const hour = parseInt(root.querySelector("#tts-hour")?.value ?? "19", 10);
+    const minute = parseInt(root.querySelector("#tts-minute")?.value ?? "0", 10);
+    const mediaPlayer = root.querySelector("#tts-media-player")?.value?.trim() ?? "";
+    const ttsEntity = root.querySelector("#tts-entity")?.value?.trim() ?? "";
+    const volRaw = root.querySelector("#tts-volume")?.value?.trim() ?? "";
+    let volume = null;
+    if (volRaw !== "") {
+      const v = Number(volRaw);
+      if (!Number.isNaN(v)) volume = Math.min(1, Math.max(0, v));
+    }
+
+    this._ttsSaveError = null;
+    this._render();
+    try {
+      const payload = {
+        type: WS_SET_TTS_OPTIONS,
+        tts_enabled: enabled,
+        announce_hour: Number.isFinite(hour) ? hour : 19,
+        announce_minute: Number.isFinite(minute) ? minute : 0,
+        media_player_entity_id: mediaPlayer,
+        tts_entity_id: ttsEntity,
+        volume,
+      };
+      const res = await this._hass.callWS(payload);
+      this._ttsOptions = res.options || this._ttsOptions;
+      this._ttsSaveError = null;
+    } catch (e) {
+      this._ttsSaveError =
+        e?.message || String(e) || "Could not save settings";
+      console.error("NYC Sanitation set_tts_options", e);
+    }
+    this._render();
+  }
+
+  async _testTts() {
+    if (!this._hass) return;
+    this._ttsTestError = null;
+    this._render();
+    try {
+      await this._hass.callWS({ type: WS_TEST_TTS });
+    } catch (e) {
+      this._ttsTestError = e?.message || String(e) || "TTS test failed";
+      console.error("NYC Sanitation test_tts", e);
+    }
+    this._render();
   }
 
   _toggleSidebar() {
@@ -72,10 +204,28 @@ class NycSanitationPanel extends HTMLElement {
     if (menuBtn) {
       menuBtn.onclick = () => this._toggleSidebar();
     }
-    const refreshBtn = this.shadowRoot.querySelector("#refresh-btn");
-    if (refreshBtn) {
-      refreshBtn.onclick = () => this._loadData();
+    const settingsBtn = this.shadowRoot.querySelector("#settings-btn");
+    if (settingsBtn) {
+      settingsBtn.onclick = () => this._openSettings();
     }
+    const modalBackdrop = this.shadowRoot.querySelector("#settings-modal");
+    const modalDialog = this.shadowRoot.querySelector("#settings-dialog");
+    if (modalDialog) {
+      modalDialog.onclick = (ev) => ev.stopPropagation();
+    }
+    if (modalBackdrop) {
+      modalBackdrop.onclick = (ev) => {
+        if (ev.target === modalBackdrop) this._closeSettings();
+      };
+    }
+    const cancelBtn = this.shadowRoot.querySelector("#tts-cancel");
+    if (cancelBtn) cancelBtn.onclick = () => this._closeSettings();
+    const saveBtn = this.shadowRoot.querySelector("#tts-save");
+    if (saveBtn) saveBtn.onclick = (ev) => this._saveTtsSettings(ev);
+    const testBtn = this.shadowRoot.querySelector("#tts-test");
+    if (testBtn) testBtn.onclick = () => this._testTts();
+    const refreshNow = this.shadowRoot.querySelector("#refresh-now-btn");
+    if (refreshNow) refreshNow.onclick = () => this._loadData();
   }
 
   _todayName() {
@@ -121,18 +271,25 @@ class NycSanitationPanel extends HTMLElement {
     const today = this._todayName();
     const weekly = data.weekly || {};
 
-    const cols = WEEK_ORDER.map(
-      (day) => `
+    const cols = WEEK_ORDER.map((day) => {
+      const nextDay = nextWeekdayInOrder(day);
+      const nextTypes = nextDay ? weekly[nextDay] || [] : [];
+      const curbsideHint =
+        nextTypes.length > 0
+          ? `<div class="curbside-hint small muted">Prepare waste curbside for collection.</div>`
+          : "";
+      return `
       <div class="day-col ${day === today ? "today" : ""}">
         <div class="day-head">${day.slice(0, 3)}</div>
         <div class="day-body">
           ${this._chipsHtml(weekly[day] || [])}
+          ${curbsideHint}
         </div>
       </div>
-    `
-    ).join("");
+    `;
+    }).join("");
 
-    return `<div class="week-grid">${cols}</div>`;
+    return `<div class="week-scroll" role="region" aria-label="Weekly collection schedule"><div class="week-grid">${cols}</div></div>`;
   }
 
   _chipsHtml(types) {
@@ -199,8 +356,94 @@ class NycSanitationPanel extends HTMLElement {
       .replace(/"/g, "&quot;");
   }
 
+  _renderSettingsModal() {
+    if (!this._settingsOpen) return "";
+
+    const o = this._ttsOptions || {};
+    const enabled = o.tts_enabled === true;
+    const hour = Number.isFinite(o.announce_hour) ? o.announce_hour : 19;
+    const minute = Number.isFinite(o.announce_minute) ? o.announce_minute : 0;
+    const mp = this._escape(o.media_player_entity_id || "");
+    const tts = this._escape(o.tts_entity_id || "");
+    const vol =
+      o.volume != null && o.volume !== ""
+        ? String(o.volume)
+        : "";
+
+    const preview =
+      this._ttsTomorrowTypes && this._ttsTomorrowTypes.length
+        ? this._escape(this._ttsTomorrowTypes.join(", "))
+        : "None (tomorrow)";
+
+    let body = "";
+    if (this._ttsLoading) {
+      body = `<div class="muted center pad">Loading…</div>`;
+    } else if (this._ttsLoadError) {
+      body = `<div class="form-error pad">${this._escape(this._ttsLoadError)}</div>`;
+    } else {
+      body = `
+        <p class="muted small modal-lead">
+          Once per day at the time below, if tomorrow has a DSNY pickup, Home Assistant will announce it on the chosen media player (admin only).
+        </p>
+        <div class="preview-row muted small">Tomorrow’s collections (preview): <strong>${preview}</strong></div>
+        <form id="tts-form" class="tts-form">
+          <label class="check-row">
+            <input type="checkbox" id="tts-enabled" ${enabled ? "checked" : ""} />
+            <span>Enable day-before reminders</span>
+          </label>
+          <div class="field-row">
+            <label for="tts-hour">Hour (0–23)</label>
+            <input type="number" id="tts-hour" min="0" max="23" value="${hour}" />
+          </div>
+          <div class="field-row">
+            <label for="tts-minute">Minute (0–59)</label>
+            <input type="number" id="tts-minute" min="0" max="59" value="${minute}" />
+          </div>
+          <div class="field-row">
+            <label for="tts-media-player">Media player entity</label>
+            <input type="text" id="tts-media-player" placeholder="media_player.living_room" value="${mp}" autocomplete="off" />
+          </div>
+          <div class="field-row">
+            <label for="tts-entity">TTS entity (optional)</label>
+            <input type="text" id="tts-entity" placeholder="Leave empty to auto-pick tts.*" value="${tts}" autocomplete="off" />
+          </div>
+          <div class="field-row">
+            <label for="tts-volume">Volume 0–1 (optional)</label>
+            <input type="text" id="tts-volume" placeholder="e.g. 0.4" value="${vol}" autocomplete="off" />
+          </div>
+          ${this._ttsSaveError ? `<div class="form-error">${this._escape(this._ttsSaveError)}</div>` : ""}
+          ${this._ttsTestError ? `<div class="form-error">${this._escape(this._ttsTestError)}</div>` : ""}
+        </form>
+        <div class="modal-actions">
+          <button type="button" class="btn secondary" id="refresh-now-btn">Refresh schedule now</button>
+          <button type="button" class="btn secondary" id="tts-test">Test announcement</button>
+          <button type="button" class="btn secondary" id="tts-cancel">Cancel</button>
+          <button type="button" class="btn primary" id="tts-save">Save</button>
+        </div>
+      `;
+    }
+
+    return `
+      <div class="modal-backdrop" id="settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+        <div class="modal-dialog" id="settings-dialog">
+          <h2 id="settings-title">TTS reminder settings</h2>
+          ${body}
+        </div>
+      </div>
+    `;
+  }
+
   _render() {
     const title = "NYC Sanitation";
+    const admin = this._isAdmin();
+    const settingsBtn = admin
+      ? `
+          <button class="icon-btn" id="settings-btn" type="button" title="Settings" aria-label="Settings">
+            <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor" aria-hidden="true"><path d="M12,15.5A3.5,3.5 0 0,1 8.5,12A3.5,3.5 0 0,1 12,8.5A3.5,3.5 0 0,1 15.5,12A3.5,3.5 0 0,1 12,15.5M19.43,12.97C19.47,12.65 19.5,12.33 19.5,12C19.5,11.67 19.47,11.34 19.43,11L21.54,9.37C21.73,9.22 21.78,8.95 21.66,8.73L19.66,5.27C19.54,5.05 19.27,4.96 19.05,5.05L16.56,6.05C16.04,5.66 15.5,5.32 14.87,5.07L14.5,2.42C14.46,2.18 14.25,2 14,2H10C9.75,2 9.54,2.18 9.5,2.42L9.13,5.07C8.5,5.32 7.96,5.66 7.44,6.05L4.95,5.05C4.73,4.96 4.46,5.05 4.34,5.27L2.34,8.73C2.21,8.95 2.27,9.22 2.46,9.37L4.57,11C4.53,11.34 4.5,11.67 4.5,12C4.5,12.33 4.53,12.65 4.57,12.97L2.46,14.63C2.27,14.78 2.21,15.05 2.34,15.27L4.34,18.73C4.46,18.95 4.73,19.03 4.95,18.95L7.44,17.94C7.96,18.34 8.5,18.68 9.13,18.93L9.5,21.58C9.54,21.82 9.75,22 10,22H14C14.25,22 14.46,21.82 14.5,21.58L14.87,18.93C15.5,18.68 16.04,18.34 16.56,17.94L19.05,18.95C19.27,19.03 19.54,18.95 19.66,18.73L21.66,15.27C21.78,15.05 21.73,14.78 21.54,14.63L19.43,12.97Z"/></svg>
+          </button>
+        `
+      : "";
+
     this.shadowRoot.innerHTML = `
       <style>
         :host {
@@ -274,6 +517,7 @@ class NycSanitationPanel extends HTMLElement {
         .muted { color: var(--secondary-text-color); }
         .small { font-size: 12px; }
         .center { text-align: center; padding: 24px; }
+        .pad { padding: 16px; }
         .notice {
           background: var(--card-background-color, rgba(0,0,0,0.05));
           border-radius: 12px;
@@ -281,21 +525,19 @@ class NycSanitationPanel extends HTMLElement {
           border: 1px solid var(--divider-color);
         }
         .notice h2 { margin: 0 0 8px; font-size: 1.1rem; }
-        .week-grid {
-          display: grid;
-          grid-template-columns: repeat(7, minmax(0, 1fr));
-          gap: 8px;
+        .week-scroll {
           margin-bottom: 20px;
+          overflow-x: auto;
+          -webkit-overflow-scrolling: touch;
+          scrollbar-gutter: stable;
         }
-        @media (max-width: 900px) {
-          .week-grid {
-            grid-template-columns: repeat(4, minmax(0, 1fr));
-          }
-        }
-        @media (max-width: 520px) {
-          .week-grid {
-            grid-template-columns: repeat(2, minmax(0, 1fr));
-          }
+        .week-grid {
+          display: flex;
+          flex-direction: row;
+          flex-wrap: nowrap;
+          gap: 8px;
+          width: 100%;
+          min-width: min-content;
         }
         .day-col {
           background: var(--card-background-color, rgba(0,0,0,0.04));
@@ -303,6 +545,8 @@ class NycSanitationPanel extends HTMLElement {
           border: 1px solid var(--divider-color);
           overflow: hidden;
           min-height: 120px;
+          flex: 1 1 0;
+          min-width: 76px;
           display: flex;
           flex-direction: column;
         }
@@ -326,6 +570,12 @@ class NycSanitationPanel extends HTMLElement {
           flex-direction: column;
           gap: 6px;
           flex: 1;
+        }
+        .curbside-hint {
+          margin-top: 4px;
+          font-size: 10px;
+          line-height: 1.35;
+          font-style: italic;
         }
         .chip {
           display: block;
@@ -362,6 +612,94 @@ class NycSanitationPanel extends HTMLElement {
           color: var(--secondary-text-color);
           font-size: 13px;
         }
+        .modal-backdrop {
+          position: fixed;
+          inset: 0;
+          background: rgba(0,0,0,0.45);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          z-index: 100;
+          padding: 16px;
+          box-sizing: border-box;
+        }
+        .modal-dialog {
+          background: var(--card-background-color, var(--primary-background-color));
+          color: var(--primary-text-color);
+          border-radius: 12px;
+          border: 1px solid var(--divider-color);
+          max-width: 440px;
+          width: 100%;
+          max-height: 90vh;
+          overflow: auto;
+          padding: 20px;
+          box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+        }
+        .modal-dialog h2 {
+          margin: 0 0 12px;
+          font-size: 1.15rem;
+          font-weight: 600;
+        }
+        .modal-lead { margin: 0 0 12px; }
+        .preview-row { margin-bottom: 16px; }
+        .tts-form .field-row {
+          display: flex;
+          flex-direction: column;
+          gap: 6px;
+          margin-bottom: 12px;
+        }
+        .tts-form label { font-size: 13px; font-weight: 500; }
+        .tts-form input[type="text"],
+        .tts-form input[type="number"] {
+          padding: 10px 12px;
+          border-radius: 8px;
+          border: 1px solid var(--divider-color);
+          background: var(--primary-background-color);
+          color: var(--primary-text-color);
+          font-size: 14px;
+          min-height: 44px;
+          box-sizing: border-box;
+        }
+        .check-row {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          margin-bottom: 16px;
+          cursor: pointer;
+          min-height: 44px;
+        }
+        .check-row input { width: 18px; height: 18px; }
+        .form-error {
+          color: var(--error-color, #db4437);
+          font-size: 13px;
+          margin: 8px 0;
+        }
+        .modal-actions {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 8px;
+          justify-content: flex-end;
+          margin-top: 16px;
+        }
+        .btn {
+          min-height: 44px;
+          padding: 0 16px;
+          border-radius: 8px;
+          border: none;
+          font-size: 14px;
+          font-weight: 500;
+          cursor: pointer;
+        }
+        .btn.primary {
+          background: var(--primary-color);
+          color: var(--text-primary-color, #fff);
+        }
+        .btn.secondary {
+          background: var(--card-background-color, rgba(128,128,128,0.15));
+          color: var(--primary-text-color);
+          border: 1px solid var(--divider-color);
+        }
+        .btn:hover { filter: brightness(1.05); }
       </style>
       <div class="shell">
         <div class="toolbar">
@@ -369,9 +707,7 @@ class NycSanitationPanel extends HTMLElement {
             <svg viewBox="0 0 24 24"><path d="M3,6H21V8H3V6M3,11H21V13H3V11M3,16H21V18H3V16Z"/></svg>
           </button>
           <h1>${title}</h1>
-          <button class="icon-btn" id="refresh-btn" type="button" title="Refresh" aria-label="Refresh">
-            <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M17.65 6.35A7.958 7.958 0 0 0 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08A5.99 5.99 0 0 1 12 18c-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>
-          </button>
+          ${settingsBtn}
         </div>
         <div class="content">
           ${this._renderMeta()}
@@ -379,6 +715,7 @@ class NycSanitationPanel extends HTMLElement {
           ${this._renderRouting()}
         </div>
       </div>
+      ${this._renderSettingsModal()}
     `;
     this._attachListeners();
   }

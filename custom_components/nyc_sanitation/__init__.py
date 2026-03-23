@@ -16,10 +16,11 @@ from homeassistant.helpers.typing import ConfigType
 
 from .const import DOMAIN, PANEL_ICON, PANEL_TITLE, PANEL_URL_PATH
 from .coordinator import DSNYCoordinator
+from .tts_schedule import async_cancel_tts_schedule, async_setup_tts_schedule
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS: list[Platform] = [Platform.BINARY_SENSOR]
+PLATFORMS: list[Platform] = [Platform.BINARY_SENSOR, Platform.SENSOR]
 
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
@@ -33,6 +34,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     coordinator = DSNYCoordinator(hass)
     hass.data[DOMAIN]["coordinator"] = coordinator
+    hass.data[DOMAIN]["config_entry_id"] = entry.entry_id
 
     await coordinator.async_config_entry_first_refresh()
 
@@ -54,6 +56,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     )
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    await async_setup_tts_schedule(hass, entry)
     return True
 
 
@@ -62,6 +65,10 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if not unload_ok:
         return False
+
+    async_cancel_tts_schedule(hass)
+    hass.data[DOMAIN].pop("config_entry_id", None)
+    hass.data[DOMAIN].pop("tts_last_announce_date", None)
 
     try:
         frontend.async_remove_panel(hass, PANEL_URL_PATH)

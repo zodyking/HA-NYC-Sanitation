@@ -1,8 +1,8 @@
 # NYC Sanitation (Home Assistant)
 
-Custom integration for **NYC Department of Sanitation (DSNY)** collection schedules: a **sidebar panel** (weekly view + routing times), reverse geocoding from your home coordinates, and a **Trash due** binary sensor.
+Custom integration for **NYC Department of Sanitation (DSNY)** collection schedules: a **sidebar panel** (weekly view + routing times), reverse geocoding from your home coordinates, **binary sensors** per stream (set-out window vs pickup day), and **text sensors** for today/tomorrow pickups.
 
-**Current release:** `1.1.0` — setup via **Settings → Devices & services** (config flow).  
+**Current release:** `1.3.1` — setup via **Settings → Devices & services** (config flow).  
 Repository: [github.com/zodyking/HA-NYC-Sanitation](https://github.com/zodyking/HA-NYC-Sanitation)
 
 [![HACS Custom](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://github.com/hacs/integration)
@@ -45,8 +45,22 @@ Remove `nyc_sanitation:` from `configuration.yaml`, restart if needed, then add 
 
 | Piece | Description |
 |--------|-------------|
-| **Sidebar: Sanitation** | Weekly schedule chips + enforcement routing (NYC addresses only; otherwise a short “NYC only” message). |
-| **Binary sensor: Trash due** | `on` when regular trash collection is scheduled for **today** in your HA time zone. Attributes: `collection_types_today`, `residential_routing_times`, `formatted_address`, `community_board`. |
+| **Sidebar: Sanitation** | Seven-day row (scrolls horizontally on narrow screens) + enforcement routing (NYC addresses only; otherwise a short “NYC only” message). |
+| **Binary: set out (night before & pickup day)** | One per stream (**Trash**, **Recycling**, **Compost**, **Large items**). `on` when that stream is collected **today or tomorrow** in your HA time zone—so it covers the night-before curbside window through pickup day. |
+| **Binary: pickup day (today)** | One per stream. `on` only on the **scheduled pickup day** for that stream. |
+| **Sensor: pickups today / tomorrow** | Human-readable lists (e.g. `Trash, Recycling` or `None`). Same address, community board, routing, and type lists as attributes. |
+
+**Upgrade note (v1.3):** The old single entity **`Trash due`** (`nyc_sanitation_trash_due`) is removed. Use **`Trash — pickup day (today)`** and **`Trash — set out (night before & pickup day)`** instead. You can delete the stale entity from **Settings → Devices & services → NYC Sanitation → entity** if it still appears.
+
+## TTS reminders (day before pickup)
+
+Administrators can open the **Sanitation** sidebar panel and use the **settings (cog)** to configure optional **text-to-speech** reminders.
+
+- **When it runs:** Once per day at the **local time** you choose (Home Assistant time zone). If **tomorrow** has any DSNY collection type (trash, recycling, compost, or large items), HA speaks a short announcement on the **media player** you pick.
+- **Requirements:** A working **`media_player`** and a **`tts.*`** entity (you can leave the TTS field empty to auto-select the first `tts` entity). Optional **volume** (0–1) is applied before speaking.
+- **Test:** Use **Test announcement** in the same dialog to verify entity IDs without waiting for the schedule.
+
+Backend polling of the DSNY API is at most **once per hour**; the panel refreshes its view about **once per minute** so the UI stays stable while other entities update.
 
 ## Troubleshooting
 

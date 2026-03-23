@@ -7,7 +7,7 @@ from typing import Any
 import voluptuous as vol
 from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
 
-from .const import DOMAIN
+from .const import DEFAULT_TTS_OPTIONS, DOMAIN
 
 
 class NycSanitationConfigFlow(ConfigFlow, domain=DOMAIN):
@@ -25,6 +25,7 @@ class NycSanitationConfigFlow(ConfigFlow, domain=DOMAIN):
             return self.async_create_entry(
                 title="NYC Department of Sanitation",
                 data={},
+                options={**DEFAULT_TTS_OPTIONS},
             )
 
         return self.async_show_form(
