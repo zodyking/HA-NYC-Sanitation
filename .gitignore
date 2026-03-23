@@ -1,0 +1,20 @@
+# Local / agent scratch (not shipped with the integration)
+Agent-Files/
+
+# Pytest
+.pytest_cache/
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Environments
+.env
+.venv/
+venv/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/
