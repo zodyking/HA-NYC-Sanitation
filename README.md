@@ -1,45 +1,62 @@
 # NYC Sanitation (Home Assistant)
 
-Custom integration for NYC Department of Sanitation (DSNY) collection schedules: sidebar panel, reverse-geocoded home address, and a **Trash due** binary sensor.
+Custom integration for **NYC Department of Sanitation (DSNY)** collection schedules: a **sidebar panel** (weekly view + routing times), reverse geocoding from your home coordinates, and a **Trash due** binary sensor.
+
+**Current release:** `1.1.0` — setup via **Settings → Devices & services** (config flow).  
+Repository: [github.com/zodyking/HA-NYC-Sanitation](https://github.com/zodyking/HA-NYC-Sanitation)
 
 [![HACS Custom](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://github.com/hacs/integration)
 
 ## Requirements
 
 - Home Assistant **2024.1** or newer
-- Dependencies: `http`, `frontend`, `panel_custom` (declared in the integration manifest)
+- Dependencies (declared in the manifest): `http`, `frontend`, `panel_custom`
 
 ## Installation
 
-### HACS
+### HACS (recommended)
 
-1. Open **HACS** → **Integrations** → menu **⋮** → **Custom repositories**.
-2. Add this repository URL, category **Integration**.
-3. Install **NYC Sanitation** and restart Home Assistant.
+1. **HACS** → **Integrations** → **⋮** → **Custom repositories**.
+2. Add `https://github.com/zodyking/HA-NYC-Sanitation`, category **Integration**.
+3. Open **HACS** → **Integrations** → find **NYC Sanitation** → **Download**.
+4. **Restart Home Assistant.**
 
 ### Manual
 
-Copy the `custom_components/nyc_sanitation` folder into your configuration directory:
+Copy [`custom_components/nyc_sanitation`](custom_components/nyc_sanitation) to:
 
 `config/custom_components/nyc_sanitation/`
 
-Restart Home Assistant.
+Then **restart** Home Assistant.
 
-## Configuration
+## Configuration (UI)
 
-Add an empty mapping for the domain in `configuration.yaml`:
+1. **Settings** → **Devices & services** → **Add integration**.
+2. Search for **NYC Sanitation** or **NYC Department of Sanitation** and submit the one-step flow.
+3. Under **Settings** → **System** → **General**, set **home latitude/longitude** (used with OpenStreetMap Nominatim, then the public DSNY API).
 
-```yaml
-nyc_sanitation:
-```
+**One instance only.** To change anything, remove the integration and add it again.
 
-Set your **home location** (latitude / longitude) under **Settings → System → General**. The integration uses OpenStreetMap Nominatim to build an address string, then queries the public DSNY API.
+### Upgrading from YAML-only (v1.0.x)
+
+Remove `nyc_sanitation:` from `configuration.yaml`, restart if needed, then add the integration from **Devices & services** as above.
 
 ## What you get
 
-- Sidebar panel **Sanitation** — weekly schedule and enforcement routing times (NYC addresses only).
-- `binary_sensor` **Trash due** — `on` when regular trash collection is scheduled for the current day in your HA time zone; attributes include collection types due that day, residential routing times, and formatted address.
+| Piece | Description |
+|--------|-------------|
+| **Sidebar: Sanitation** | Weekly schedule chips + enforcement routing (NYC addresses only; otherwise a short “NYC only” message). |
+| **Binary sensor: Trash due** | `on` when regular trash collection is scheduled for **today** in your HA time zone. Attributes: `collection_types_today`, `residential_routing_times`, `formatted_address`, `community_board`. |
+
+## Troubleshooting
+
+- Integration **not listed** after install: confirm the folder layout, restart HA, hard-refresh the browser.
+- **Wrong schedule:** refine the map pin under **System → General** so Nominatim returns the correct block.
+
+## Support
+
+- [Issues](https://github.com/zodyking/HA-NYC-Sanitation/issues)
 
 ## Disclaimer
 
-This project is not affiliated with NYC or DSNY. Collection rules from the public API may not reflect holidays or last-minute changes.
+Not affiliated with NYC or DSNY. API data may not reflect holidays or last-minute service changes.

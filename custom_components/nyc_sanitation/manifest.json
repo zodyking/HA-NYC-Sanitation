@@ -2,12 +2,12 @@
   "domain": "nyc_sanitation",
   "name": "NYC Department of Sanitation (Sanitation)",
   "codeowners": ["@zodyking"],
-  "config_flow": false,
+  "config_flow": true,
   "dependencies": ["http", "frontend", "panel_custom"],
   "documentation": "https://github.com/zodyking/HA-NYC-Sanitation",
   "integration_type": "service",
   "iot_class": "cloud_polling",
   "issue_tracker": "https://github.com/zodyking/HA-NYC-Sanitation/issues",
   "requirements": [],
-  "version": "1.0.0"
+  "version": "1.1.0"
 }

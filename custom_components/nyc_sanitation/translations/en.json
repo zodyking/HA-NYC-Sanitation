@@ -1,0 +1,13 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "NYC Sanitation",
+        "description": "Uses your Home Assistant home coordinates (reverse geocoded via OpenStreetMap) and the public DSNY collection API. Set latitude and longitude under Settings → System → General. No further configuration is required—submit to finish."
+      }
+    },
+    "abort": {
+      "already_configured": "NYC Sanitation is already configured. Only one instance is allowed."
+    }
+  }
+}

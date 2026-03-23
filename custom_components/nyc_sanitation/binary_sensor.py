@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from homeassistant.components.binary_sensor import BinarySensorEntity
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -19,13 +20,12 @@ from .coordinator import DSNYCoordinator
 from .parse import collection_types_today, trash_due_today
 
 
-async def async_setup_platform(
+async def async_setup_entry(
     hass: HomeAssistant,
-    config: dict,
+    _entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
-    discovery_info=None,
 ) -> None:
-    """Set up trash due binary sensor."""
+    """Set up trash due binary sensor from config entry."""
     coordinator: DSNYCoordinator = hass.data[DOMAIN]["coordinator"]
     async_add_entities([TrashDueBinarySensor(coordinator)], True)
 
