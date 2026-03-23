@@ -1,8 +1,8 @@
 # NYC Sanitation (Home Assistant)
 
-Custom integration for **NYC Department of Sanitation (DSNY)** collection schedules: a **sidebar panel** (weekly view + routing times), reverse geocoding from your home coordinates, **binary sensors** per stream (set-out window vs pickup day), and **text sensors** for today/tomorrow pickups.
+Custom integration for **NYC Department of Sanitation (DSNY)** collection schedules: a **sidebar panel** (weekly view + routing times), reverse geocoding from your home coordinates, **one binary sensor** for pickups tomorrow, and **two sensors** for the next two pickup dates (types in attributes).
 
-**Current release:** `1.3.1` — setup via **Settings → Devices & services** (config flow).  
+**Current release:** `1.3.3` — setup via **Settings → Devices & services** (config flow).  
 Repository: [github.com/zodyking/HA-NYC-Sanitation](https://github.com/zodyking/HA-NYC-Sanitation)
 
 [![HACS Custom](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://github.com/hacs/integration)
@@ -45,12 +45,12 @@ Remove `nyc_sanitation:` from `configuration.yaml`, restart if needed, then add 
 
 | Piece | Description |
 |--------|-------------|
-| **Sidebar: Sanitation** | Seven-day row (scrolls horizontally on narrow screens) + enforcement routing (NYC addresses only; otherwise a short “NYC only” message). |
-| **Binary: set out (night before & pickup day)** | One per stream (**Trash**, **Recycling**, **Compost**, **Large items**). `on` when that stream is collected **today or tomorrow** in your HA time zone—so it covers the night-before curbside window through pickup day. |
-| **Binary: pickup day (today)** | One per stream. `on` only on the **scheduled pickup day** for that stream. |
-| **Sensor: pickups today / tomorrow** | Human-readable lists (e.g. `Trash, Recycling` or `None`). Same address, community board, routing, and type lists as attributes. |
+| **Sidebar: Sanitation** | Seven-day fluid row + enforcement routing (NYC addresses only; otherwise a short “NYC only” message). |
+| **Binary: Pickup scheduled tomorrow** | `on` when **any** DSNY collection is scheduled for **tomorrow** (local calendar). Attribute **`collection_types`** lists them; also includes today/tomorrow summaries and address metadata. |
+| **Sensor: Pickup date 1** | State **`YYYY-MM-DD`** for the **first** upcoming pickup day starting from **today** (inclusive). Attributes **`collection_types`** (list) and **`weekday`**. Shared address / routing / today+tomorrow type hints. |
+| **Sensor: Pickup date 2** | State **`YYYY-MM-DD`** for the **second** upcoming pickup day, or **`none`** if none found within 21 days. Same attributes when a date exists. |
 
-**Upgrade note (v1.3):** The old single entity **`Trash due`** (`nyc_sanitation_trash_due`) is removed. Use **`Trash — pickup day (today)`** and **`Trash — set out (night before & pickup day)`** instead. You can delete the stale entity from **Settings → Devices & services → NYC Sanitation → entity** if it still appears.
+**Upgrade note (v1.3.3):** Per-stream binaries and the old “Pickups scheduled today / tomorrow” text sensors are **removed**. You get **three** entities only. Delete orphaned entities under **Settings → Devices & services → NYC Sanitation** after upgrading.
 
 ## TTS reminders (day before pickup)
 

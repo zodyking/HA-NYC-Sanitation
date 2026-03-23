@@ -32,16 +32,17 @@ def async_setup(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, websocket_test_tts)
 
 
-async def _require_admin(
-    hass: HomeAssistant,
+def _require_admin(
+    _hass: HomeAssistant,
     connection: websocket_api.ActiveConnection,
     msg_id: int,
 ) -> bool:
-    if not connection.user_id:
+    """True if the websocket connection has an admin user (HA ActiveConnection.user)."""
+    user = connection.user
+    if user is None:
         connection.send_error(msg_id, "unauthorized", "Not authenticated")
         return False
-    user = await hass.auth.async_get_user(connection.user_id)
-    if user is None or not user.is_admin:
+    if not user.is_admin:
         connection.send_error(
             msg_id, "unauthorized", "Administrator access required"
         )
@@ -119,7 +120,7 @@ async def websocket_get_tts_options(
     msg: dict[str, Any],
 ) -> None:
     """Return TTS options and a preview of tomorrow's collection types (admin only)."""
-    if not await _require_admin(hass, connection, msg["id"]):
+    if not _require_admin(hass, connection, msg["id"]):
         return
 
     entry = _get_entry(hass)
@@ -166,7 +167,7 @@ async def websocket_set_tts_options(
     msg: dict[str, Any],
 ) -> None:
     """Persist TTS options on the config entry (admin only)."""
-    if not await _require_admin(hass, connection, msg["id"]):
+    if not _require_admin(hass, connection, msg["id"]):
         return
 
     entry = _get_entry(hass)
@@ -209,7 +210,7 @@ async def websocket_test_tts(
     msg: dict[str, Any],
 ) -> None:
     """Speak a short test phrase using current TTS options (admin only)."""
-    if not await _require_admin(hass, connection, msg["id"]):
+    if not _require_admin(hass, connection, msg["id"]):
         return
 
     entry = _get_entry(hass)

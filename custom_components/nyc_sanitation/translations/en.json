@@ -12,37 +12,16 @@
   },
   "entity": {
     "binary_sensor": {
-      "trash_put_out": {
-        "name": "Trash — set out (night before & pickup day)"
-      },
-      "trash_pickup_today": {
-        "name": "Trash — pickup day (today)"
-      },
-      "recycling_put_out": {
-        "name": "Recycling — set out (night before & pickup day)"
-      },
-      "recycling_pickup_today": {
-        "name": "Recycling — pickup day (today)"
-      },
-      "compost_put_out": {
-        "name": "Compost — set out (night before & pickup day)"
-      },
-      "compost_pickup_today": {
-        "name": "Compost — pickup day (today)"
-      },
-      "large_items_put_out": {
-        "name": "Large items — set out (night before & pickup day)"
-      },
-      "large_items_pickup_today": {
-        "name": "Large items — pickup day (today)"
+      "pickup_scheduled_tomorrow": {
+        "name": "Pickup scheduled tomorrow"
       }
     },
     "sensor": {
-      "collections_today": {
-        "name": "Pickups scheduled today"
+      "pickup_date_1": {
+        "name": "Pickup date 1"
       },
-      "collections_tomorrow": {
-        "name": "Pickups scheduled tomorrow"
+      "pickup_date_2": {
+        "name": "Pickup date 2"
       }
     }
   }

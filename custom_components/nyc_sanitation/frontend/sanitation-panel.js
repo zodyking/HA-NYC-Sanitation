@@ -289,7 +289,7 @@ class NycSanitationPanel extends HTMLElement {
     `;
     }).join("");
 
-    return `<div class="week-scroll" role="region" aria-label="Weekly collection schedule"><div class="week-grid">${cols}</div></div>`;
+    return `<div class="week-strip" role="region" aria-label="Weekly collection schedule"><div class="week-grid">${cols}</div></div>`;
   }
 
   _chipsHtml(types) {
@@ -525,28 +525,25 @@ class NycSanitationPanel extends HTMLElement {
           border: 1px solid var(--divider-color);
         }
         .notice h2 { margin: 0 0 8px; font-size: 1.1rem; }
-        .week-scroll {
+        .week-strip {
           margin-bottom: 20px;
-          overflow-x: auto;
-          -webkit-overflow-scrolling: touch;
-          scrollbar-gutter: stable;
+          overflow-x: hidden;
+          width: 100%;
         }
         .week-grid {
-          display: flex;
-          flex-direction: row;
-          flex-wrap: nowrap;
-          gap: 8px;
+          display: grid;
+          grid-template-columns: repeat(7, minmax(0, 1fr));
           width: 100%;
-          min-width: min-content;
+          gap: clamp(3px, 1.1vw, 8px);
+          box-sizing: border-box;
         }
         .day-col {
           background: var(--card-background-color, rgba(0,0,0,0.04));
-          border-radius: 10px;
+          border-radius: clamp(6px, 1.5vw, 10px);
           border: 1px solid var(--divider-color);
           overflow: hidden;
-          min-height: 120px;
-          flex: 1 1 0;
-          min-width: 76px;
+          min-height: clamp(72px, 22vw, 120px);
+          min-width: 0;
           display: flex;
           flex-direction: column;
         }
@@ -555,35 +552,40 @@ class NycSanitationPanel extends HTMLElement {
           box-shadow: 0 0 0 1px var(--primary-color);
         }
         .day-head {
-          padding: 8px;
+          padding: clamp(4px, 1.2vw, 8px);
           text-align: center;
           font-weight: 600;
-          font-size: 12px;
+          font-size: clamp(9px, 2.4vw, 12px);
           text-transform: uppercase;
-          letter-spacing: 0.04em;
+          letter-spacing: 0.03em;
           background: rgba(128,128,128,0.08);
           border-bottom: 1px solid var(--divider-color);
         }
         .day-body {
-          padding: 8px;
+          padding: clamp(4px, 1.2vw, 8px);
           display: flex;
           flex-direction: column;
-          gap: 6px;
+          gap: clamp(3px, 0.9vw, 6px);
           flex: 1;
+          min-width: 0;
         }
         .curbside-hint {
-          margin-top: 4px;
-          font-size: 10px;
-          line-height: 1.35;
+          margin-top: 2px;
+          font-size: clamp(7px, 1.9vw, 10px);
+          line-height: 1.3;
           font-style: italic;
+          overflow-wrap: anywhere;
+          word-break: break-word;
         }
         .chip {
           display: block;
-          font-size: 11px;
-          padding: 6px 8px;
-          border-radius: 6px;
-          border-left: 3px solid var(--primary-color);
+          font-size: clamp(8px, 2.1vw, 11px);
+          padding: clamp(3px, 0.9vw, 6px) clamp(4px, 1.1vw, 8px);
+          border-radius: clamp(4px, 1vw, 6px);
+          border-left: clamp(2px, 0.6vw, 3px) solid var(--primary-color);
           background: color-mix(in srgb, var(--primary-color) 14%, transparent);
+          overflow-wrap: anywhere;
+          word-break: break-word;
         }
         .chip.trash { border-left-color: var(--primary-text-color); }
         .chip.recycling { border-left-color: var(--info-color, #039be5); }

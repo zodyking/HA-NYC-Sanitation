@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import calendar
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import Any
 
 from .const import NYC_BOROUGH_CODES, NYC_BOROUGH_NAMES
@@ -109,20 +109,23 @@ def collection_types_tomorrow(data: dict[str, Any], now: datetime) -> list[str]:
     return collection_types_on_date(data, now + timedelta(days=1))
 
 
-def is_pickup_today_for_type(
-    data: dict[str, Any], now: datetime, collection_label: str
-) -> bool:
-    """True when *collection_label* is collected on the calendar day of *now*."""
-    return collection_label in collection_types_today(data, now)
+def next_pickup_days(
+    data: dict[str, Any],
+    start_local_datetime: datetime,
+    *,
+    max_days: int = 21,
+    limit: int = 2,
+) -> list[tuple[date, list[str]]]:
+    """First *limit* calendar days (from *start_local_datetime*'s date) with any collection.
 
-
-def is_put_out_window_for_type(
-    data: dict[str, Any], now: datetime, collection_label: str
-) -> bool:
-    """True on the day before curbside pickup and on pickup day (overnight set-out pattern).
-
-    ON when *collection_label* is scheduled **today** or **tomorrow** in *now*'s local calendar.
+    *start_local_datetime* should be start-of-day in the Home Assistant time zone.
     """
-    return collection_label in collection_types_today(
-        data, now
-    ) or collection_label in collection_types_tomorrow(data, now)
+    out: list[tuple[date, list[str]]] = []
+    for offset in range(max_days):
+        dt = start_local_datetime + timedelta(days=offset)
+        types = collection_types_on_date(data, dt)
+        if types:
+            out.append((dt.date(), list(types)))
+            if len(out) >= limit:
+                break
+    return out
