@@ -2,7 +2,7 @@
 
 Custom integration for **NYC Department of Sanitation (DSNY)** collection schedules: a **sidebar panel** (weekly view + routing times), reverse geocoding from your home coordinates, **one binary sensor** for pickups tomorrow, and **two sensors** for the next two pickup dates (types in attributes).
 
-**Current release:** `1.4.0` — setup via **Settings → Devices & services** (config flow).  
+**Current release:** `1.4.1` — setup via **Settings → Devices & services** (config flow).  
 Repository: [github.com/zodyking/HA-NYC-Sanitation](https://github.com/zodyking/HA-NYC-Sanitation)
 
 [![HACS Custom](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://github.com/hacs/integration)
@@ -74,19 +74,22 @@ Each matching tick can announce again (no “once per calendar day” cap), so c
 
 - **Prefix** (default: `Message from New York City Sanitation,`) is prepended to the **body** template.
 - **Body** is chosen from the **single-type** template matching tomorrow’s only type, or from **Multiple types** when there is more than one.
-- Placeholders in templates: **`{weekday}`** (tomorrow’s weekday name), **`{types}`** (comma-separated), **`{types_sentence}`** (e.g. `Trash, Recycling, and Compost`), **`{type}`** (single-type shortcut; when multiple, same as `{types}`).
+- **Schedule / pickup:** **`{weekday}`**, **`{types}`**, **`{types_sentence}`**, **`{type}`** (single-type shortcut; when multiple, same as `{types}`).
+- **Curb + routing:** **`{curb_reminder}`** — set-out guidance using **residential** enforcement times from DSNY. **`{routing_first_start}`** is a TTS-friendly time (e.g. `8 A M`). **`{routing_first_start_display}`** is a short display form (e.g. `8:00 AM`). **`{residential_routing_raw}`** is the full API string for advanced templates.
+  - **Heuristic:** the integration parses `ResidentialRoutingTime` (e.g. `Daily: 8:00 AM - 9:00 AM and 6:00 PM - 7:00 PM`) and uses the **earliest morning (AM) window start** as “first route tomorrow.” If there is no AM window, it uses the **first** start time in the string. If no times parse, the reminder avoids inventing a time and points you to the panel.
+- **What is / isn’t tomorrow:** **`{type_status}`** — e.g. “Scheduled for pickup: Trash and Recycling. Not scheduled: Compost and Large items.” (covers all four streams: Trash, Recycling, Compost, Large items). **`{types_scheduled}`** / **`{types_not_scheduled}`** — comma lists in that canonical order. **`{has_large_items}`** — `yes` or `no`. **`{large_items_note}`** — extra sentence when **large items are** scheduled (bulk rules); when bulk is **not** scheduled, absences are already in **`{type_status}`**.
 
 ### Default spoken examples (if you keep default templates)
 
-| Situation | Example announcement |
-|-----------|------------------------|
-| Tomorrow is **Trash** only | “Message from New York City Sanitation, Tomorrow, Wednesday, is Trash collection day.” |
-| Tomorrow is **Recycling** only | Same pattern with “Recycling collection day.” |
-| Tomorrow is **Compost** only | Same pattern with “Compost collection day.” |
-| Tomorrow is **Large items** only | Same pattern with “Large items collection day.” |
-| Tomorrow has **several** types | “Message from New York City Sanitation, Tomorrow, Wednesday, sanitation collections include Trash, Recycling, and Compost.” |
+Exact lines depend on routing text, weekday, and tomorrow’s types. Illustrative shape:
 
-(Exact wording depends on your templates and the real weekday / types from DSNY.)
+| Situation | Example shape |
+|-----------|----------------|
+| Trash only tomorrow (no bulk) | Prefix + curb reminder referencing first **A M** route time + “Tomorrow, Wednesday, is Trash collection day.” + **type_status** listing Recycling, Compost, Large items as not scheduled. |
+| Trash + Recycling, no bulk | Same curb line + “Tomorrow, Wednesday.” + **type_status** (scheduled: Trash and Recycling; not scheduled: Compost and Large items). |
+| Includes **Large items** | **type_status** includes Large items in “Scheduled”; **`{large_items_note}`** adds bulk set-out wording in single-type templates. |
+
+(Word order and times come from your DSNY response and templates.)
 
 ### Requirements
 

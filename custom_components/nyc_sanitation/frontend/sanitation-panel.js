@@ -597,38 +597,46 @@ class NycSanitationPanel extends HTMLElement {
 
           <fieldset class="fieldset">
             <legend>Active window (local time)</legend>
-            <p class="muted small fieldset-hint">End time is the first time reminders stop (half-open interval). Example: 12 PM – 8 PM runs through 7:59 PM at your chosen minute.</p>
-            <div class="time-row">
-              <span class="time-label">Start</span>
-              <select id="tts-start-hour" aria-label="Start hour">${this._hourOptions12(startParts.h12)}</select>
-              <select id="tts-start-ampm" aria-label="Start AM or PM">
-                <option value="am" ${startAm}>AM</option>
-                <option value="pm" ${startPm}>PM</option>
-              </select>
-            </div>
-            <div class="time-row">
-              <span class="time-label">End</span>
-              <select id="tts-end-hour" aria-label="End hour">${this._hourOptions12(endParts.h12)}</select>
-              <select id="tts-end-ampm" aria-label="End AM or PM">
-                <option value="am" ${endAm}>AM</option>
-                <option value="pm" ${endPm}>PM</option>
-              </select>
+            <p class="muted small fieldset-hint">End is when reminders stop (half-open). Example: 12 PM–8 PM → last eligible hour is 7 PM at your minute.</p>
+            <div class="tts-row2">
+              <div class="tts-cell">
+                <span class="sub-label">Start</span>
+                <div class="time-inline">
+                  <select id="tts-start-hour" aria-label="Start hour">${this._hourOptions12(startParts.h12)}</select>
+                  <select id="tts-start-ampm" aria-label="Start AM or PM">
+                    <option value="am" ${startAm}>AM</option>
+                    <option value="pm" ${startPm}>PM</option>
+                  </select>
+                </div>
+              </div>
+              <div class="tts-cell">
+                <span class="sub-label">End</span>
+                <div class="time-inline">
+                  <select id="tts-end-hour" aria-label="End hour">${this._hourOptions12(endParts.h12)}</select>
+                  <select id="tts-end-ampm" aria-label="End AM or PM">
+                    <option value="am" ${endAm}>AM</option>
+                    <option value="pm" ${endPm}>PM</option>
+                  </select>
+                </div>
+              </div>
             </div>
           </fieldset>
 
-          <div class="field-row">
-            <label for="tts-interval">Repeat every</label>
-            <select id="tts-interval">
-              <option value="1" ${i1}>1 hour</option>
-              <option value="2" ${i2}>2 hours</option>
-              <option value="3" ${i3}>3 hours</option>
-              <option value="4" ${i4}>4 hours</option>
-            </select>
-          </div>
-          <div class="field-row">
-            <label for="tts-minute-offset">Minute offset (0–59)</label>
-            <input type="number" id="tts-minute-offset" min="0" max="59" value="${minute}" />
-            <span class="muted small">Fires at this minute past each eligible hour (e.g. 32 → …:32).</span>
+          <div class="tts-row2">
+            <div class="field-row compact">
+              <label for="tts-interval">Repeat every</label>
+              <select id="tts-interval">
+                <option value="1" ${i1}>1 hour</option>
+                <option value="2" ${i2}>2 hours</option>
+                <option value="3" ${i3}>3 hours</option>
+                <option value="4" ${i4}>4 hours</option>
+              </select>
+            </div>
+            <div class="field-row compact">
+              <label for="tts-minute-offset">Minute (0–59)</label>
+              <input type="number" id="tts-minute-offset" min="0" max="59" value="${minute}" />
+              <span class="muted small">e.g. 32 → …:32</span>
+            </div>
           </div>
 
           <div class="field-row">
@@ -640,58 +648,61 @@ class NycSanitationPanel extends HTMLElement {
             <select id="tts-tts-entity">${this._entitySelectOptions(this._ttsEntities, tts)}</select>
           </div>
 
-          <div class="field-row">
-            <label for="tts-volume-slider">Volume (0–1)</label>
-            <label class="check-row tight">
-              <input type="checkbox" id="tts-volume-apply" ${volumeApply ? "checked" : ""} />
-              <span>Apply volume before each announcement</span>
-            </label>
-            <div class="slider-row">
-              <input type="range" id="tts-volume-slider" min="0" max="1" step="0.01" value="${vol}" />
-              <span id="tts-volume-label" class="vol-label">${vol.toFixed(2)}</span>
+          <div class="tts-row2 tts-vol-cache">
+            <div class="field-row compact">
+              <div class="vol-head">
+                <label for="tts-volume-slider">Volume</label>
+                <label class="inline-check"><input type="checkbox" id="tts-volume-apply" ${volumeApply ? "checked" : ""} /> Apply before speak</label>
+              </div>
+              <div class="slider-row">
+                <input type="range" id="tts-volume-slider" min="0" max="1" step="0.01" value="${vol}" />
+                <span id="tts-volume-label" class="vol-label">${vol.toFixed(2)}</span>
+              </div>
+            </div>
+            <div class="field-row compact tts-cache-cell">
+              <label class="check-row tight flush"><input type="checkbox" id="tts-cache" ${ttsCache ? "checked" : ""} /><span>Cache (tts.speak)</span></label>
             </div>
           </div>
 
-          <label class="check-row">
-            <input type="checkbox" id="tts-cache" ${ttsCache ? "checked" : ""} />
-            <span>Cache (tts.speak)</span>
-          </label>
-          <div class="field-row">
-            <label for="tts-language">Language (optional)</label>
-            <input type="text" id="tts-language" placeholder="e.g. en" value="${lang}" autocomplete="off" />
-          </div>
-          <div class="field-row">
-            <label for="tts-options-json">Options JSON (optional)</label>
-            <textarea id="tts-options-json" rows="4" placeholder='{}' spellcheck="false">${optsJson}</textarea>
-            <span class="muted small">Integration-specific options passed to <code>tts.speak</code>.</span>
+          <div class="tts-row2">
+            <div class="field-row compact">
+              <label for="tts-language">Language</label>
+              <input type="text" id="tts-language" placeholder="optional, e.g. en" value="${lang}" autocomplete="off" />
+            </div>
+            <div class="field-row compact">
+              <label for="tts-options-json">Options JSON</label>
+              <textarea id="tts-options-json" rows="3" placeholder="{}" spellcheck="false">${optsJson}</textarea>
+            </div>
           </div>
 
           <fieldset class="fieldset">
             <legend>Message templates</legend>
-            <p class="muted small">Placeholders: <code>{weekday}</code>, <code>{types}</code>, <code>{types_sentence}</code>, <code>{type}</code></p>
-            <div class="field-row">
-              <label for="tts-prefix">Prefix</label>
-              <input type="text" id="tts-prefix" value="${this._escape(o.tts_message_prefix || "")}" autocomplete="off" />
-            </div>
-            <div class="field-row">
-              <label for="tts-msg-trash">Trash only</label>
-              <textarea id="tts-msg-trash" rows="2" spellcheck="false">${this._escape(o.tts_message_trash || "")}</textarea>
-            </div>
-            <div class="field-row">
-              <label for="tts-msg-recycling">Recycling only</label>
-              <textarea id="tts-msg-recycling" rows="2" spellcheck="false">${this._escape(o.tts_message_recycling || "")}</textarea>
-            </div>
-            <div class="field-row">
-              <label for="tts-msg-compost">Compost only</label>
-              <textarea id="tts-msg-compost" rows="2" spellcheck="false">${this._escape(o.tts_message_compost || "")}</textarea>
-            </div>
-            <div class="field-row">
-              <label for="tts-msg-large">Large items only</label>
-              <textarea id="tts-msg-large" rows="2" spellcheck="false">${this._escape(o.tts_message_large_items || "")}</textarea>
-            </div>
-            <div class="field-row">
-              <label for="tts-msg-mixed">Multiple types</label>
-              <textarea id="tts-msg-mixed" rows="2" spellcheck="false">${this._escape(o.tts_message_mixed || "")}</textarea>
+            <p class="muted small tpl-hint">Placeholders include <code>{curb_reminder}</code>, <code>{type_status}</code>, <code>{routing_first_start}</code>, <code>{large_items_note}</code>, <code>{weekday}</code>, <code>{types_sentence}</code>, …</p>
+            <div class="template-grid">
+              <div class="field-row tpl-full">
+                <label for="tts-prefix">Prefix</label>
+                <input type="text" id="tts-prefix" value="${this._escape(o.tts_message_prefix || "")}" autocomplete="off" />
+              </div>
+              <div class="field-row">
+                <label for="tts-msg-trash">Trash only</label>
+                <textarea id="tts-msg-trash" rows="2" spellcheck="false">${this._escape(o.tts_message_trash || "")}</textarea>
+              </div>
+              <div class="field-row">
+                <label for="tts-msg-recycling">Recycling only</label>
+                <textarea id="tts-msg-recycling" rows="2" spellcheck="false">${this._escape(o.tts_message_recycling || "")}</textarea>
+              </div>
+              <div class="field-row">
+                <label for="tts-msg-compost">Compost only</label>
+                <textarea id="tts-msg-compost" rows="2" spellcheck="false">${this._escape(o.tts_message_compost || "")}</textarea>
+              </div>
+              <div class="field-row">
+                <label for="tts-msg-large">Large items only</label>
+                <textarea id="tts-msg-large" rows="2" spellcheck="false">${this._escape(o.tts_message_large_items || "")}</textarea>
+              </div>
+              <div class="field-row tpl-full">
+                <label for="tts-msg-mixed">Multiple types</label>
+                <textarea id="tts-msg-mixed" rows="2" spellcheck="false">${this._escape(o.tts_message_mixed || "")}</textarea>
+              </div>
             </div>
           </fieldset>
 
@@ -928,6 +939,64 @@ class NycSanitationPanel extends HTMLElement {
           gap: 6px;
           margin-bottom: 12px;
         }
+        .tts-form .field-row.compact { margin-bottom: 0; }
+        .tts-row2 {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 12px 16px;
+          margin-bottom: 12px;
+          align-items: start;
+        }
+        @media (max-width: 560px) {
+          .tts-row2 { grid-template-columns: 1fr; }
+        }
+        .tts-cell .sub-label {
+          display: block;
+          font-size: 12px;
+          font-weight: 600;
+          margin-bottom: 4px;
+          color: var(--secondary-text-color);
+        }
+        .time-inline {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 8px;
+          align-items: center;
+        }
+        .time-inline select { min-height: 44px; }
+        .vol-head {
+          display: flex;
+          flex-wrap: wrap;
+          align-items: center;
+          justify-content: space-between;
+          gap: 8px;
+        }
+        .inline-check {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          font-size: 12px;
+          font-weight: 500;
+          cursor: pointer;
+          white-space: nowrap;
+        }
+        .inline-check input { width: 16px; height: 16px; }
+        .tts-cache-cell {
+          display: flex;
+          align-items: center;
+          min-height: 44px;
+        }
+        .check-row.flush { margin-bottom: 0; min-height: 44px; }
+        .template-grid {
+          display: grid;
+          grid-template-columns: 1fr;
+          gap: 10px;
+        }
+        @media (min-width: 720px) {
+          .template-grid { grid-template-columns: 1fr 1fr; }
+          .template-grid .tpl-full { grid-column: 1 / -1; }
+        }
+        .tpl-hint { margin-top: 0; margin-bottom: 10px; }
         .tts-form label { font-size: 13px; font-weight: 500; }
         .tts-form input[type="text"],
         .tts-form input[type="number"],

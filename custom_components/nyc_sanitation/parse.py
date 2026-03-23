@@ -3,8 +3,21 @@
 from __future__ import annotations
 
 import calendar
+import re
 from datetime import date, datetime, timedelta
 from typing import Any
+
+# Order used for TTS “scheduled vs not scheduled” summaries.
+CANONICAL_COLLECTION_TYPES: tuple[str, ...] = (
+    "Trash",
+    "Recycling",
+    "Compost",
+    "Large items",
+)
+
+_ROUTING_TIME_TOKEN_RE = re.compile(
+    r"(\d{1,2}):(\d{2})\s*(AM|PM)", re.IGNORECASE
+)
 
 from .const import NYC_BOROUGH_CODES, NYC_BOROUGH_NAMES
 
@@ -129,3 +142,76 @@ def next_pickup_days(
             if len(out) >= limit:
                 break
     return out
+
+
+def residential_routing_window_starts(
+    residential_routing: str | None,
+) -> list[tuple[int, int, str]]:
+    """Parse DSNY ``ResidentialRoutingTime`` text into window start times.
+
+    Each window is assumed to appear as ``start - end``; we take every other
+    time token starting at the first as a *start* (e.g. ``8:00 AM - 9:00 AM``).
+
+    Returns list of ``(hour12, minute, "AM"|"PM")`` in order of appearance.
+    """
+    if not residential_routing or not str(residential_routing).strip():
+        return []
+    matches = list(_ROUTING_TIME_TOKEN_RE.finditer(str(residential_routing)))
+    if not matches:
+        return []
+    starts: list[tuple[int, int, str]] = []
+    for i in range(0, len(matches), 2):
+        m = matches[i]
+        h12 = int(m.group(1))
+        minute = int(m.group(2))
+        if not 1 <= h12 <= 12 or not 0 <= minute <= 59:
+            continue
+        ap = m.group(3).upper()
+        if ap not in ("AM", "PM"):
+            continue
+        starts.append((h12, minute, ap))
+    return starts
+
+
+def _start_to_minutes_from_midnight(h12: int, minute: int, ap: str) -> int:
+    """Convert 12h clock to minutes from midnight for comparison."""
+    apu = ap.upper()
+    if apu == "AM":
+        h24 = 0 if h12 == 12 else h12
+    else:
+        h24 = 12 if h12 == 12 else h12 + 12
+    return h24 * 60 + minute
+
+
+def residential_routing_anchor_start(
+    residential_routing: str | None,
+) -> tuple[int, int, str] | None:
+    """Pick one start time for set-out messaging.
+
+    Prefer the **earliest AM** window start; if none, use the first start in the
+    string. Returns ``(hour12, minute, AM|PM)`` or ``None`` if unparseable.
+    """
+    starts = residential_routing_window_starts(residential_routing)
+    if not starts:
+        return None
+    am_starts = [s for s in starts if s[2].upper() == "AM"]
+    pool = am_starts if am_starts else starts
+    best = min(
+        pool,
+        key=lambda s: _start_to_minutes_from_midnight(s[0], s[1], s[2]),
+    )
+    return best
+
+
+def format_routing_start_spoken(h12: int, minute: int, ap: str) -> str:
+    """Spoken-friendly time for TTS (e.g. ``8 A M``, ``6 30 P M``)."""
+    apu = ap.upper()
+    period = " ".join(list(apu))
+    if minute == 0:
+        return f"{h12} {period}"
+    return f"{h12} {minute} {period}"
+
+
+def format_routing_start_display(h12: int, minute: int, ap: str) -> str:
+    """Human display like ``8:00 AM``."""
+    return f"{h12}:{minute:02d} {ap.upper()}"

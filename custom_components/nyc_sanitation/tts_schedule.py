@@ -106,7 +106,12 @@ async def async_maybe_announce(hass: HomeAssistant) -> None:
 
     tomorrow_dt = local_now + timedelta(days=1)
     weekday_name = calendar.day_name[tomorrow_dt.weekday()]
-    message = build_tts_message(opts, types, weekday_name)
+    routing = coordinator.data.get("routing") or {}
+    res_rt = routing.get("residential")
+    residential = res_rt if isinstance(res_rt, str) else None
+    message = build_tts_message(
+        opts, types, weekday_name, residential_routing=residential
+    )
     if not message:
         return
 

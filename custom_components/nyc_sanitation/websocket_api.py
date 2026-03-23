@@ -175,7 +175,12 @@ async def websocket_get_tts_options(
             if tomorrow_types:
                 tw = local_now + timedelta(days=1)
                 wname = calendar.day_name[tw.weekday()]
-                preview_message = build_tts_message(opts, tomorrow_types, wname)
+                routing = coordinator.data.get("routing") or {}
+                res_rt = routing.get("residential")
+                residential = res_rt if isinstance(res_rt, str) else None
+                preview_message = build_tts_message(
+                    opts, tomorrow_types, wname, residential_routing=residential
+                )
 
     connection.send_result(
         msg["id"],
