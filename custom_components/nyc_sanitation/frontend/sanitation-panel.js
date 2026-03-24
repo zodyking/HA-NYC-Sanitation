@@ -877,6 +877,7 @@ class NycSanitationPanel extends HTMLElement {
         :host {
           display: block;
           height: 100%;
+          min-height: 100%;
           box-sizing: border-box;
           /* Fixed HA-style dark palette (scoped to this panel; ignores global light/dark theme) */
           --primary-background-color: #111111;
@@ -900,6 +901,8 @@ class NycSanitationPanel extends HTMLElement {
           min-height: 100%;
           display: flex;
           flex-direction: column;
+          flex: 1 1 auto;
+          background: var(--primary-background-color);
         }
         .toolbar {
           display: flex;
@@ -951,11 +954,15 @@ class NycSanitationPanel extends HTMLElement {
           padding: 16px;
           flex: 1;
           overflow: auto;
+          min-height: 0;
+          background: var(--primary-background-color);
         }
         .settings-scroll {
           flex: 1;
           overflow: auto;
+          min-height: 0;
           padding: 16px;
+          background: var(--primary-background-color);
         }
         .settings-body { max-width: 640px; margin: 0 auto; }
         .settings-lead { margin: 0 0 12px; }

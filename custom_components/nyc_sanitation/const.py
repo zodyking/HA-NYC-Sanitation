@@ -44,21 +44,21 @@ DEFAULT_TTS_OPTIONS = {
     "tts_cache": True,
     "tts_language": "",
     "tts_options": None,
-    "tts_message_prefix": "Message from Sanitation,",
+    "tts_message_prefix": "Message from New York Sanitation,",
     "tts_message_trash": (
-        "{curb_reminder} Tomorrow, {weekday}. {type_status} {large_items_note}"
+        "{curb_reminder} Tomorrow. {type_status} {large_items_note}"
     ),
     "tts_message_recycling": (
-        "{curb_reminder} Tomorrow, {weekday}. {type_status} {large_items_note}"
+        "{curb_reminder} Tomorrow. {type_status} {large_items_note}"
     ),
     "tts_message_compost": (
-        "{curb_reminder} Tomorrow, {weekday}. {type_status} {large_items_note}"
+        "{curb_reminder} Tomorrow. {type_status} {large_items_note}"
     ),
     "tts_message_large_items": (
-        "{curb_reminder} Tomorrow, {weekday}. {type_status} {large_items_note}"
+        "{curb_reminder} Tomorrow. {type_status} {large_items_note}"
     ),
     "tts_message_mixed": (
-        "{curb_reminder} Tomorrow, {weekday}. {type_status} {large_items_note}"
+        "{curb_reminder} Tomorrow. {type_status} {large_items_note}"
     ),
 }
 

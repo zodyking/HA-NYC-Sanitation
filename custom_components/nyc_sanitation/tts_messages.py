@@ -49,9 +49,9 @@ def _build_type_status(collection_types: list[str]) -> str:
     absent = [x for x in CANONICAL_COLLECTION_TYPES if x not in scheduled_set]
     parts: list[str] = []
     if present:
-        parts.append(f"Pickup: {_types_sentence(present)}.")
+        parts.append(f"{_types_sentence(present)} will be collected.")
     if absent:
-        parts.append(f"No {_types_sentence(absent)}.")
+        parts.append(f"No {_types_sentence(absent)} will be collected.")
     return " ".join(parts)
 
 
@@ -68,8 +68,8 @@ def _build_curb_reminder(
 ) -> str:
     if anchor_spoken:
         return (
-            "Put materials at the curb this evening before tomorrow's pickup, "
-            f"as early as {anchor_spoken}."
+            "Put materials at the curb this evening before tomorrow's pickup "
+            f"at {anchor_spoken}."
         )
     raw = (residential_routing or "").strip()
     if raw:
@@ -141,7 +141,7 @@ def build_tts_message(
         body_tmpl = str(opts.get("tts_message_mixed") or "").strip()
 
     if not body_tmpl:
-        body_tmpl = "{curb_reminder} Tomorrow, {weekday}. {type_status} {large_items_note}"
+        body_tmpl = "{curb_reminder} Tomorrow. {type_status} {large_items_note}"
 
     body = _substitute_placeholders(body_tmpl, ctx)
     body = re.sub(r"\s{2,}", " ", body).strip()

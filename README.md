@@ -72,12 +72,12 @@ Each matching tick can announce again (no “once per calendar day” cap), so c
 
 ### Message templates and placeholders
 
-- **Prefix** (default: `Message from Sanitation,`) is prepended to the **body** template.
+- **Prefix** (default: `Message from New York Sanitation,`) is prepended to the **body** template.
 - **Body** is chosen from the **single-type** template matching tomorrow’s only type, or from **Multiple types** when there is more than one.
 - **Schedule / pickup:** **`{weekday}`**, **`{types}`**, **`{types_sentence}`**, **`{type}`** (single-type shortcut; when multiple, same as `{types}`).
-- **Curb + routing:** **`{curb_reminder}`** — short set-out line using **residential** enforcement times from DSNY when a time can be parsed (e.g. “Put materials at the curb this evening before tomorrow's pickup, as early as 8 A M.”). **`{routing_first_start}`** is a TTS-friendly time (e.g. `8 A M`). **`{routing_first_start_display}`** is a short display form (e.g. `8:00 AM`). **`{residential_routing_raw}`** is the full API string for advanced templates.
+- **Curb + routing:** **`{curb_reminder}`** — short set-out line using **residential** enforcement times from DSNY when a time can be parsed (e.g. “Put materials at the curb this evening before tomorrow's pickup at 8 A M.”). **`{routing_first_start}`** is a TTS-friendly time (e.g. `8 A M`). **`{routing_first_start_display}`** is a short display form (e.g. `8:00 AM`). **`{residential_routing_raw}`** is the full API string for advanced templates.
   - **Heuristic:** the integration parses `ResidentialRoutingTime` (e.g. `Daily: 8:00 AM - 9:00 AM and 6:00 PM - 7:00 PM`) and uses the **earliest morning (AM) window start** as “first route tomorrow.” If there is no AM window, it uses the **first** start time in the string. If no times parse, **`{curb_reminder}`** does not invent a time and points you to the panel.
-- **What is / isn’t tomorrow:** **`{type_status}`** — compact lines, e.g. “Pickup: Trash and Recycling. No Compost and Large items.” (canonical order: Trash, Recycling, Compost, Large items). **`{types_scheduled}`** / **`{types_not_scheduled}`** — comma lists in that order. **`{has_large_items}`** — `yes` or `no`. **`{large_items_note}`** — short bulk reminder only when **large items are** scheduled; otherwise empty (other absences are in **`{type_status}`**).
+- **What is / isn’t tomorrow:** **`{type_status}`** — compact lines, e.g. “Trash and Recycling will be collected. No Compost and Large items will be collected.” (canonical order: Trash, Recycling, Compost, Large items). **`{types_scheduled}`** / **`{types_not_scheduled}`** — comma lists in that order. **`{has_large_items}`** — `yes` or `no`. **`{large_items_note}`** — short bulk reminder only when **large items are** scheduled; otherwise empty (other absences are in **`{type_status}`**).
 
 ### Text preview (WebSocket, admin)
 
@@ -94,9 +94,9 @@ Exact lines depend on routing text, weekday, and tomorrow’s types. Illustrativ
 
 | Situation | Example shape |
 |-----------|----------------|
-| Trash only tomorrow (no bulk) | Prefix + short curb line (with **A M** time when parsed) + “Tomorrow, Wednesday.” + **Pickup: Trash.** + **No Recycling, Compost, or Large items.** |
-| Trash + Recycling + Compost, no bulk | Same curb + “Tomorrow, Wednesday.” + **Pickup: Trash, Recycling, and Compost.** + **No Large items.** |
-| Includes **Large items** | **Pickup** line lists large items with other types; **`{large_items_note}`** adds a short DSNY bulk reminder. |
+| Trash only tomorrow (no bulk) | Prefix + curb line ending **at** parsed time + “Tomorrow.” + **Trash will be collected.** + **No Recycling, Compost, or Large items will be collected.** |
+| Trash + Recycling + Compost, no bulk | Same curb + “Tomorrow.” + **Trash, Recycling, and Compost will be collected.** + **No Large items will be collected.** |
+| Includes **Large items** | **Will be collected** line lists large items with other streams; **`{large_items_note}`** adds a short DSNY bulk reminder. |
 
 (Word order and times come from your DSNY response and templates.)
 
