@@ -49,16 +49,16 @@ def _build_type_status(collection_types: list[str]) -> str:
     absent = [x for x in CANONICAL_COLLECTION_TYPES if x not in scheduled_set]
     parts: list[str] = []
     if present:
-        parts.append(f"Scheduled for pickup: {_types_sentence(present)}.")
+        parts.append(f"Pickup: {_types_sentence(present)}.")
     if absent:
-        parts.append(f"Not scheduled: {_types_sentence(absent)}.")
+        parts.append(f"No {_types_sentence(absent)}.")
     return " ".join(parts)
 
 
 def _build_large_items_note(collection_types: list[str]) -> str:
-    """Extra clause when bulk is scheduled; absences are covered by ``type_status``."""
+    """Short bulk reminder when large items are scheduled; empty otherwise."""
     if "Large items" in collection_types:
-        return "Large items are included; follow DSNY bulk set-out rules."
+        return "Follow DSNY bulk set-out rules."
     return ""
 
 
@@ -68,18 +68,18 @@ def _build_curb_reminder(
 ) -> str:
     if anchor_spoken:
         return (
-            "Put materials at the curb this evening before tomorrow's first residential "
-            f"routing window, which may begin as early as {anchor_spoken}."
+            "Put materials at the curb this evening before tomorrow's pickup, "
+            f"as early as {anchor_spoken}."
         )
     raw = (residential_routing or "").strip()
     if raw:
         return (
             "Put materials at the curb this evening for tomorrow's pickup. "
-            "Residential routing text is on file; open the NYC Sanitation panel for full times."
+            "Open the Sanitation panel for routing times."
         )
     return (
         "Put materials at the curb this evening for tomorrow's pickup. "
-        "Check the Sanitation panel for your enforcement routing times."
+        "Check the Sanitation panel for routing times."
     )
 
 
@@ -141,7 +141,7 @@ def build_tts_message(
         body_tmpl = str(opts.get("tts_message_mixed") or "").strip()
 
     if not body_tmpl:
-        body_tmpl = "{curb_reminder} Tomorrow, {weekday}. {type_status}"
+        body_tmpl = "{curb_reminder} Tomorrow, {weekday}. {type_status} {large_items_note}"
 
     body = _substitute_placeholders(body_tmpl, ctx)
     body = re.sub(r"\s{2,}", " ", body).strip()

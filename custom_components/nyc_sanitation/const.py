@@ -44,22 +44,18 @@ DEFAULT_TTS_OPTIONS = {
     "tts_cache": True,
     "tts_language": "",
     "tts_options": None,
-    "tts_message_prefix": "Message from New York City Sanitation,",
+    "tts_message_prefix": "Message from Sanitation,",
     "tts_message_trash": (
-        "{curb_reminder} Tomorrow, {weekday}, is Trash collection day. {type_status} "
-        "{large_items_note}"
+        "{curb_reminder} Tomorrow, {weekday}. {type_status} {large_items_note}"
     ),
     "tts_message_recycling": (
-        "{curb_reminder} Tomorrow, {weekday}, is Recycling collection day. {type_status} "
-        "{large_items_note}"
+        "{curb_reminder} Tomorrow, {weekday}. {type_status} {large_items_note}"
     ),
     "tts_message_compost": (
-        "{curb_reminder} Tomorrow, {weekday}, is Compost collection day. {type_status} "
-        "{large_items_note}"
+        "{curb_reminder} Tomorrow, {weekday}. {type_status} {large_items_note}"
     ),
     "tts_message_large_items": (
-        "{curb_reminder} Tomorrow, {weekday}, is Large items collection day. {type_status} "
-        "{large_items_note}"
+        "{curb_reminder} Tomorrow, {weekday}. {type_status} {large_items_note}"
     ),
     "tts_message_mixed": (
         "{curb_reminder} Tomorrow, {weekday}. {type_status} {large_items_note}"

@@ -976,8 +976,26 @@ class NycSanitationPanel extends HTMLElement {
           line-height: 1.5;
           padding: 8px 0 4px;
         }
-        .tpl-block { margin-bottom: 14px; }
+        .tpl-block {
+          margin-bottom: 14px;
+          width: 100%;
+          min-width: 0;
+          box-sizing: border-box;
+        }
         .tpl-block-full { width: 100%; }
+        .tpl-block textarea {
+          width: 100%;
+          max-width: 100%;
+          min-width: 0;
+          display: block;
+          box-sizing: border-box;
+        }
+        .tts-section-card .tts-inline-preview {
+          width: 100%;
+          max-width: 100%;
+          min-width: 0;
+          box-sizing: border-box;
+        }
         .tpl-label-row {
           display: flex;
           flex-wrap: wrap;
@@ -985,6 +1003,8 @@ class NycSanitationPanel extends HTMLElement {
           justify-content: space-between;
           gap: 8px;
           margin-bottom: 6px;
+          width: 100%;
+          min-width: 0;
         }
         .tpl-label-row label { margin: 0; font-weight: 500; }
         .btn-sm {

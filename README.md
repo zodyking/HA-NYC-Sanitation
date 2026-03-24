@@ -72,12 +72,12 @@ Each matching tick can announce again (no “once per calendar day” cap), so c
 
 ### Message templates and placeholders
 
-- **Prefix** (default: `Message from New York City Sanitation,`) is prepended to the **body** template.
+- **Prefix** (default: `Message from Sanitation,`) is prepended to the **body** template.
 - **Body** is chosen from the **single-type** template matching tomorrow’s only type, or from **Multiple types** when there is more than one.
 - **Schedule / pickup:** **`{weekday}`**, **`{types}`**, **`{types_sentence}`**, **`{type}`** (single-type shortcut; when multiple, same as `{types}`).
-- **Curb + routing:** **`{curb_reminder}`** — set-out guidance using **residential** enforcement times from DSNY. **`{routing_first_start}`** is a TTS-friendly time (e.g. `8 A M`). **`{routing_first_start_display}`** is a short display form (e.g. `8:00 AM`). **`{residential_routing_raw}`** is the full API string for advanced templates.
-  - **Heuristic:** the integration parses `ResidentialRoutingTime` (e.g. `Daily: 8:00 AM - 9:00 AM and 6:00 PM - 7:00 PM`) and uses the **earliest morning (AM) window start** as “first route tomorrow.” If there is no AM window, it uses the **first** start time in the string. If no times parse, the reminder avoids inventing a time and points you to the panel.
-- **What is / isn’t tomorrow:** **`{type_status}`** — e.g. “Scheduled for pickup: Trash and Recycling. Not scheduled: Compost and Large items.” (covers all four streams: Trash, Recycling, Compost, Large items). **`{types_scheduled}`** / **`{types_not_scheduled}`** — comma lists in that canonical order. **`{has_large_items}`** — `yes` or `no`. **`{large_items_note}`** — extra sentence when **large items are** scheduled (bulk rules); when bulk is **not** scheduled, absences are already in **`{type_status}`**.
+- **Curb + routing:** **`{curb_reminder}`** — short set-out line using **residential** enforcement times from DSNY when a time can be parsed (e.g. “Put materials at the curb this evening before tomorrow's pickup, as early as 8 A M.”). **`{routing_first_start}`** is a TTS-friendly time (e.g. `8 A M`). **`{routing_first_start_display}`** is a short display form (e.g. `8:00 AM`). **`{residential_routing_raw}`** is the full API string for advanced templates.
+  - **Heuristic:** the integration parses `ResidentialRoutingTime` (e.g. `Daily: 8:00 AM - 9:00 AM and 6:00 PM - 7:00 PM`) and uses the **earliest morning (AM) window start** as “first route tomorrow.” If there is no AM window, it uses the **first** start time in the string. If no times parse, **`{curb_reminder}`** does not invent a time and points you to the panel.
+- **What is / isn’t tomorrow:** **`{type_status}`** — compact lines, e.g. “Pickup: Trash and Recycling. No Compost and Large items.” (canonical order: Trash, Recycling, Compost, Large items). **`{types_scheduled}`** / **`{types_not_scheduled}`** — comma lists in that order. **`{has_large_items}`** — `yes` or `no`. **`{large_items_note}`** — short bulk reminder only when **large items are** scheduled; otherwise empty (other absences are in **`{type_status}`**).
 
 ### Text preview (WebSocket, admin)
 
@@ -94,9 +94,9 @@ Exact lines depend on routing text, weekday, and tomorrow’s types. Illustrativ
 
 | Situation | Example shape |
 |-----------|----------------|
-| Trash only tomorrow (no bulk) | Prefix + curb reminder referencing first **A M** route time + “Tomorrow, Wednesday, is Trash collection day.” + **type_status** listing Recycling, Compost, Large items as not scheduled. |
-| Trash + Recycling, no bulk | Same curb line + “Tomorrow, Wednesday.” + **type_status** (scheduled: Trash and Recycling; not scheduled: Compost and Large items). |
-| Includes **Large items** | **type_status** includes Large items in “Scheduled”; **`{large_items_note}`** adds bulk set-out wording in single-type templates. |
+| Trash only tomorrow (no bulk) | Prefix + short curb line (with **A M** time when parsed) + “Tomorrow, Wednesday.” + **Pickup: Trash.** + **No Recycling, Compost, or Large items.** |
+| Trash + Recycling + Compost, no bulk | Same curb + “Tomorrow, Wednesday.” + **Pickup: Trash, Recycling, and Compost.** + **No Large items.** |
+| Includes **Large items** | **Pickup** line lists large items with other types; **`{large_items_note}`** adds a short DSNY bulk reminder. |
 
 (Word order and times come from your DSNY response and templates.)
 
