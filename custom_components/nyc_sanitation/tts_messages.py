@@ -148,3 +148,22 @@ def build_tts_message(
     if not prefix:
         return body
     return f"{prefix} {body}".strip()
+
+
+# Synthetic pickup sets for per-template preview (see README).
+_SCENARIO_TYPES: dict[str, list[str]] = {
+    "trash": ["Trash"],
+    "recycling": ["Recycling"],
+    "compost": ["Compost"],
+    "large_items": ["Large items"],
+    "mixed": ["Trash", "Recycling", "Compost"],
+}
+
+
+def scenario_collection_types(scenario: str) -> list[str] | None:
+    """Return fixed types for *scenario*, or ``None`` for ``tomorrow_actual`` (live data)."""
+    if scenario == "tomorrow_actual":
+        return None
+    return list(_SCENARIO_TYPES[scenario])
+
+

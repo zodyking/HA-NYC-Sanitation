@@ -17,14 +17,34 @@ from .const import (
     DOMAIN,
     WS_TYPE_GET_COLLECTION,
     WS_TYPE_GET_TTS_OPTIONS,
+    WS_TYPE_PREVIEW_TTS_MESSAGE,
     WS_TYPE_SET_TTS_OPTIONS,
     WS_TYPE_TEST_TTS,
 )
 from .coordinator import DSNYCoordinator
 from .parse import collection_types_tomorrow
 from .tts_helper import async_send_tts
-from .tts_messages import build_tts_message
+from .tts_messages import build_tts_message, scenario_collection_types
 from .tts_schedule import async_setup_tts_schedule, merge_tts_options
+
+_PREVIEW_SCENARIOS = (
+    "trash",
+    "recycling",
+    "compost",
+    "large_items",
+    "mixed",
+    "tomorrow_actual",
+)
+_DRAFT_TEMPLATE_KEYS = frozenset(
+    {
+        "tts_message_prefix",
+        "tts_message_trash",
+        "tts_message_recycling",
+        "tts_message_compost",
+        "tts_message_large_items",
+        "tts_message_mixed",
+    }
+)
 
 
 @callback
@@ -34,6 +54,7 @@ def async_setup(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, websocket_get_tts_options)
     websocket_api.async_register_command(hass, websocket_set_tts_options)
     websocket_api.async_register_command(hass, websocket_test_tts)
+    websocket_api.async_register_command(hass, websocket_preview_tts_message)
 
 
 def _require_admin(
@@ -191,6 +212,92 @@ async def websocket_get_tts_options(
             "media_players": _entity_summaries(hass, "media_player."),
             "tts_entities": _entity_summaries(hass, "tts."),
         },
+    )
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): WS_TYPE_PREVIEW_TTS_MESSAGE,
+        vol.Required("scenario"): vol.All(str, vol.In(_PREVIEW_SCENARIOS)),
+        vol.Optional("draft"): vol.Any(None, dict),
+    }
+)
+@websocket_api.async_response
+async def websocket_preview_tts_message(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Return spoken text preview for a scenario using saved options + optional draft (admin only)."""
+    if not _require_admin(hass, connection, msg["id"]):
+        return
+
+    entry = _get_entry(hass)
+    if entry is None:
+        connection.send_error(msg["id"], "not_ready", "NYC Sanitation is not loaded")
+        return
+
+    opts: dict[str, Any] = dict(merge_tts_options(entry))
+    raw_draft = msg.get("draft")
+    if isinstance(raw_draft, dict):
+        for key, val in raw_draft.items():
+            if key in _DRAFT_TEMPLATE_KEYS:
+                opts[key] = str(val if val is not None else "").strip()
+
+    coordinator: DSNYCoordinator | None = hass.data.get(DOMAIN, {}).get("coordinator")
+    residential: str | None = None
+    if coordinator and coordinator.data:
+        rt = coordinator.data.get("routing") or {}
+        res_rt = rt.get("residential")
+        residential = res_rt if isinstance(res_rt, str) else None
+
+    scenario: str = msg["scenario"]
+    local_now = dt_util.as_local(dt_util.now())
+    tw = local_now + timedelta(days=1)
+    weekday_name = calendar.day_name[tw.weekday()]
+
+    if scenario == "tomorrow_actual":
+        if (
+            coordinator is None
+            or not coordinator.data
+            or not coordinator.data.get("nyc_valid")
+        ):
+            connection.send_result(
+                msg["id"],
+                {
+                    "preview_text": "",
+                    "no_pickup_tomorrow": True,
+                    "reason": "nyc_invalid",
+                },
+            )
+            return
+        payload = coordinator.data.get("payload")
+        if not isinstance(payload, dict):
+            connection.send_result(
+                msg["id"],
+                {"preview_text": "", "no_pickup_tomorrow": True, "reason": "no_payload"},
+            )
+            return
+        types = collection_types_tomorrow(payload, local_now)
+        if not types:
+            connection.send_result(
+                msg["id"],
+                {"preview_text": "", "no_pickup_tomorrow": True},
+            )
+            return
+    else:
+        syn = scenario_collection_types(scenario)
+        if syn is None:
+            connection.send_error(msg["id"], "invalid_request", "Bad scenario")
+            return
+        types = syn
+
+    preview_text = build_tts_message(
+        opts, types, weekday_name, residential_routing=residential
+    )
+    connection.send_result(
+        msg["id"],
+        {"preview_text": preview_text, "no_pickup_tomorrow": False},
     )
 
 

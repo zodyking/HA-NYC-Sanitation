@@ -79,6 +79,15 @@ Each matching tick can announce again (no “once per calendar day” cap), so c
   - **Heuristic:** the integration parses `ResidentialRoutingTime` (e.g. `Daily: 8:00 AM - 9:00 AM and 6:00 PM - 7:00 PM`) and uses the **earliest morning (AM) window start** as “first route tomorrow.” If there is no AM window, it uses the **first** start time in the string. If no times parse, the reminder avoids inventing a time and points you to the panel.
 - **What is / isn’t tomorrow:** **`{type_status}`** — e.g. “Scheduled for pickup: Trash and Recycling. Not scheduled: Compost and Large items.” (covers all four streams: Trash, Recycling, Compost, Large items). **`{types_scheduled}`** / **`{types_not_scheduled}`** — comma lists in that canonical order. **`{has_large_items}`** — `yes` or `no`. **`{large_items_note}`** — extra sentence when **large items are** scheduled (bulk rules); when bulk is **not** scheduled, absences are already in **`{type_status}`**.
 
+### Text preview (WebSocket, admin)
+
+The TTS settings panel can show **spoken text** without saving or calling **`tts.speak`**. It uses the WebSocket command **`nyc_sanitation/preview_tts_message`** (same admin gate as other panel commands).
+
+- **`scenario`** (required): **`trash`**, **`recycling`**, **`compost`**, **`large_items`**, **`mixed`**, or **`tomorrow_actual`**. The first five use **fixed** tomorrow-type lists so placeholders like **`{type_status}`** look realistic (e.g. **`mixed`** → Trash, Recycling, Compost). **`tomorrow_actual`** uses **live** tomorrow types from the DSNY payload (same idea as the global “tomorrow” preview). If there is no pickup tomorrow, the result has empty **`preview_text`** and **`no_pickup_tomorrow`: true** (and sometimes a **`reason`** when the address is not NYC-valid).
+- **`draft`** (optional object): any of **`tts_message_prefix`**, **`tts_message_trash`**, **`tts_message_recycling`**, **`tts_message_compost`**, **`tts_message_large_items`**, **`tts_message_mixed`** — values are merged over **saved** options for the preview only.
+
+The response includes **`preview_text`** and **`no_pickup_tomorrow`**.
+
 ### Default spoken examples (if you keep default templates)
 
 Exact lines depend on routing text, weekday, and tomorrow’s types. Illustrative shape:

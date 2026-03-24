@@ -30,6 +30,7 @@ WS_TYPE_GET_COLLECTION = f"{DOMAIN}/get_collection_data"
 WS_TYPE_GET_TTS_OPTIONS = f"{DOMAIN}/get_tts_options"
 WS_TYPE_SET_TTS_OPTIONS = f"{DOMAIN}/set_tts_options"
 WS_TYPE_TEST_TTS = f"{DOMAIN}/test_tts"
+WS_TYPE_PREVIEW_TTS_MESSAGE = f"{DOMAIN}/preview_tts_message"
 
 DEFAULT_TTS_OPTIONS = {
     "tts_enabled": False,

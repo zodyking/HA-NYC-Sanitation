@@ -5,6 +5,7 @@ const WS_GET_COLLECTION = "nyc_sanitation/get_collection_data";
 const WS_GET_TTS_OPTIONS = "nyc_sanitation/get_tts_options";
 const WS_SET_TTS_OPTIONS = "nyc_sanitation/set_tts_options";
 const WS_TEST_TTS = "nyc_sanitation/test_tts";
+const WS_PREVIEW_TTS_MESSAGE = "nyc_sanitation/preview_tts_message";
 
 const POLL_MS = 60_000;
 
@@ -218,6 +219,78 @@ class NycSanitationPanel extends HTMLElement {
     return Number.isFinite(n) ? n : fallback;
   }
 
+  _collectMessageDraft(root) {
+    return {
+      tts_message_prefix: root.querySelector("#tts-prefix")?.value ?? "",
+      tts_message_trash: root.querySelector("#tts-msg-trash")?.value ?? "",
+      tts_message_recycling: root.querySelector("#tts-msg-recycling")?.value ?? "",
+      tts_message_compost: root.querySelector("#tts-msg-compost")?.value ?? "",
+      tts_message_large_items: root.querySelector("#tts-msg-large")?.value ?? "",
+      tts_message_mixed: root.querySelector("#tts-msg-mixed")?.value ?? "",
+    };
+  }
+
+  async _runPreviewScenario(scenario) {
+    if (!this._hass) return;
+    const root = this.shadowRoot;
+    const box = root.querySelector(`#tts-inline-preview-${scenario}`);
+    const draft = this._collectMessageDraft(root);
+    if (box) {
+      box.textContent = "Loading…";
+      box.classList.remove("preview-error");
+    }
+    try {
+      const res = await this._hass.callWS({
+        type: WS_PREVIEW_TTS_MESSAGE,
+        scenario,
+        draft,
+      });
+      if (box) {
+        box.textContent = res.preview_text || "(empty)";
+      }
+    } catch (e) {
+      if (box) {
+        box.textContent = e?.message || String(e) || "Preview failed";
+        box.classList.add("preview-error");
+      }
+      console.error("NYC Sanitation preview_tts_message", e);
+    }
+  }
+
+  async _runLivePreviewUpdate() {
+    if (!this._hass) return;
+    const root = this.shadowRoot;
+    const body = root.querySelector("#tts-live-preview-body");
+    const draft = this._collectMessageDraft(root);
+    if (body) {
+      body.textContent = "Loading…";
+      body.classList.remove("preview-error");
+    }
+    try {
+      const res = await this._hass.callWS({
+        type: WS_PREVIEW_TTS_MESSAGE,
+        scenario: "tomorrow_actual",
+        draft,
+      });
+      if (body) {
+        if (res.no_pickup_tomorrow) {
+          body.textContent =
+            res.reason === "nyc_invalid"
+              ? "NYC schedule data is not available for this home."
+              : "No DSNY collections are scheduled for tomorrow.";
+        } else {
+          body.textContent = res.preview_text || "(empty)";
+        }
+      }
+    } catch (e) {
+      if (body) {
+        body.textContent = e?.message || String(e) || "Preview failed";
+        body.classList.add("preview-error");
+      }
+      console.error("NYC Sanitation live preview", e);
+    }
+  }
+
   async _saveTtsSettings(ev) {
     ev?.preventDefault?.();
     if (!this._hass) return;
@@ -368,6 +441,14 @@ class NycSanitationPanel extends HTMLElement {
         volLabel.textContent = String(Number(volSlider.value).toFixed(2));
       };
     }
+    const livePrevBtn = this.shadowRoot.querySelector("#tts-refresh-live-preview");
+    if (livePrevBtn) livePrevBtn.onclick = () => this._runLivePreviewUpdate();
+    this.shadowRoot.querySelectorAll(".js-tts-preview").forEach((btn) => {
+      btn.onclick = () => {
+        const sc = btn.getAttribute("data-scenario");
+        if (sc) this._runPreviewScenario(sc);
+      };
+    });
   }
 
   _todayName() {
@@ -582,12 +663,17 @@ class NycSanitationPanel extends HTMLElement {
     return `
       <div class="settings-body">
         <p class="muted small settings-lead">
-          When reminders are enabled, Home Assistant checks on a repeating schedule (within the time window). If <strong>tomorrow</strong> has a DSNY pickup, it waits until the media player is <strong>idle</strong>, sets volume (if set), waits for <strong>idle</strong> again, then calls <code>tts.speak</code> (admin only).
+          When enabled, Home Assistant checks during your <strong>time window</strong> on the <strong>minute</strong> you set. If <strong>tomorrow</strong> has a pickup, it waits for the media player to be <strong>idle</strong>, optionally sets volume, waits for <strong>idle</strong> again, then runs <code>tts.speak</code>.
         </p>
-        <div class="preview-block muted small">
-          <div>Tomorrow’s collections (preview): <strong>${previewTypes}</strong></div>
-          <div class="preview-msg">Spoken preview: <strong>${previewMsg}</strong></div>
+
+        <div class="tts-section-card preview-block muted small">
+          <h3 class="tts-section-title">Live preview (tomorrow’s schedule)</h3>
+          <p class="section-desc muted small">Uses your real DSNY schedule. Click below to recompute using the <strong>message fields</strong> as they are now (saved or not).</p>
+          <div>Tomorrow’s collections: <strong>${previewTypes}</strong></div>
+          <div class="preview-msg">Spoken text: <span id="tts-live-preview-body" class="live-preview-text" aria-live="polite">${previewMsg}</span></div>
+          <button type="button" class="btn secondary btn-sm" id="tts-refresh-live-preview">Update live preview</button>
         </div>
+
         <div class="form-error" id="tts-validation-error" style="display:${this._ttsValidationError ? "block" : "none"}">${this._ttsValidationError ? this._escape(this._ttsValidationError) : ""}</div>
         <form id="tts-form" class="tts-form">
           <label class="check-row">
@@ -595,116 +681,148 @@ class NycSanitationPanel extends HTMLElement {
             <span>Enable reminders</span>
           </label>
 
-          <fieldset class="fieldset">
-            <legend>Active window (local time)</legend>
-            <p class="muted small fieldset-hint">End is when reminders stop (half-open). Example: 12 PM–8 PM → last eligible hour is 7 PM at your minute.</p>
+          <div class="tts-section-card">
+            <h3 class="tts-section-title">Schedule</h3>
+            <p class="section-desc muted small">Local time. Reminders only run between start and end on matching hours.</p>
+            <fieldset class="fieldset fieldset-plain">
+              <div class="tts-row2">
+                <div class="tts-cell">
+                  <span class="sub-label">Start</span>
+                  <div class="time-inline">
+                    <select id="tts-start-hour" aria-label="Start hour">${this._hourOptions12(startParts.h12)}</select>
+                    <select id="tts-start-ampm" aria-label="Start AM or PM">
+                      <option value="am" ${startAm}>AM</option>
+                      <option value="pm" ${startPm}>PM</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="tts-cell">
+                  <span class="sub-label">End</span>
+                  <div class="time-inline">
+                    <select id="tts-end-hour" aria-label="End hour">${this._hourOptions12(endParts.h12)}</select>
+                    <select id="tts-end-ampm" aria-label="End AM or PM">
+                      <option value="am" ${endAm}>AM</option>
+                      <option value="pm" ${endPm}>PM</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+              <p class="muted small fieldset-hint">End is exclusive (e.g. 12 PM–8 PM → last hour is 7 PM at your minute).</p>
+            </fieldset>
             <div class="tts-row2">
-              <div class="tts-cell">
-                <span class="sub-label">Start</span>
-                <div class="time-inline">
-                  <select id="tts-start-hour" aria-label="Start hour">${this._hourOptions12(startParts.h12)}</select>
-                  <select id="tts-start-ampm" aria-label="Start AM or PM">
-                    <option value="am" ${startAm}>AM</option>
-                    <option value="pm" ${startPm}>PM</option>
-                  </select>
+              <div class="field-row compact">
+                <label for="tts-interval">Repeat every</label>
+                <select id="tts-interval">
+                  <option value="1" ${i1}>1 hour</option>
+                  <option value="2" ${i2}>2 hours</option>
+                  <option value="3" ${i3}>3 hours</option>
+                  <option value="4" ${i4}>4 hours</option>
+                </select>
+              </div>
+              <div class="field-row compact">
+                <label for="tts-minute-offset">Minute (0–59)</label>
+                <input type="number" id="tts-minute-offset" min="0" max="59" value="${minute}" />
+                <span class="muted small">e.g. 32 → …:32</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="tts-section-card">
+            <h3 class="tts-section-title">Voice and TTS</h3>
+            <p class="section-desc muted small">Matches Home Assistant’s <code>tts.speak</code> action: media player, engine target, cache, language, options.</p>
+            <div class="field-row">
+              <label for="tts-media-player">Media player</label>
+              <select id="tts-media-player">${this._entitySelectOptions(this._mediaPlayers, mp)}</select>
+            </div>
+            <div class="field-row">
+              <label for="tts-tts-entity">TTS engine</label>
+              <select id="tts-tts-entity">${this._entitySelectOptions(this._ttsEntities, tts)}</select>
+            </div>
+            <div class="tts-row2 tts-vol-cache">
+              <div class="field-row compact">
+                <div class="vol-head">
+                  <label for="tts-volume-slider">Volume</label>
+                  <label class="inline-check"><input type="checkbox" id="tts-volume-apply" ${volumeApply ? "checked" : ""} /> Apply before speak</label>
+                </div>
+                <div class="slider-row">
+                  <input type="range" id="tts-volume-slider" min="0" max="1" step="0.01" value="${vol}" />
+                  <span id="tts-volume-label" class="vol-label">${vol.toFixed(2)}</span>
                 </div>
               </div>
-              <div class="tts-cell">
-                <span class="sub-label">End</span>
-                <div class="time-inline">
-                  <select id="tts-end-hour" aria-label="End hour">${this._hourOptions12(endParts.h12)}</select>
-                  <select id="tts-end-ampm" aria-label="End AM or PM">
-                    <option value="am" ${endAm}>AM</option>
-                    <option value="pm" ${endPm}>PM</option>
-                  </select>
-                </div>
+              <div class="field-row compact tts-cache-cell">
+                <label class="check-row tight flush"><input type="checkbox" id="tts-cache" ${ttsCache ? "checked" : ""} /><span>Cache (tts.speak)</span></label>
               </div>
             </div>
-          </fieldset>
-
-          <div class="tts-row2">
-            <div class="field-row compact">
-              <label for="tts-interval">Repeat every</label>
-              <select id="tts-interval">
-                <option value="1" ${i1}>1 hour</option>
-                <option value="2" ${i2}>2 hours</option>
-                <option value="3" ${i3}>3 hours</option>
-                <option value="4" ${i4}>4 hours</option>
-              </select>
-            </div>
-            <div class="field-row compact">
-              <label for="tts-minute-offset">Minute (0–59)</label>
-              <input type="number" id="tts-minute-offset" min="0" max="59" value="${minute}" />
-              <span class="muted small">e.g. 32 → …:32</span>
-            </div>
-          </div>
-
-          <div class="field-row">
-            <label for="tts-media-player">Media player</label>
-            <select id="tts-media-player">${this._entitySelectOptions(this._mediaPlayers, mp)}</select>
-          </div>
-          <div class="field-row">
-            <label for="tts-tts-entity">TTS engine</label>
-            <select id="tts-tts-entity">${this._entitySelectOptions(this._ttsEntities, tts)}</select>
-          </div>
-
-          <div class="tts-row2 tts-vol-cache">
-            <div class="field-row compact">
-              <div class="vol-head">
-                <label for="tts-volume-slider">Volume</label>
-                <label class="inline-check"><input type="checkbox" id="tts-volume-apply" ${volumeApply ? "checked" : ""} /> Apply before speak</label>
+            <div class="tts-row2">
+              <div class="field-row compact">
+                <label for="tts-language">Language</label>
+                <input type="text" id="tts-language" placeholder="optional, e.g. en" value="${lang}" autocomplete="off" />
               </div>
-              <div class="slider-row">
-                <input type="range" id="tts-volume-slider" min="0" max="1" step="0.01" value="${vol}" />
-                <span id="tts-volume-label" class="vol-label">${vol.toFixed(2)}</span>
+              <div class="field-row compact">
+                <label for="tts-options-json">Options JSON</label>
+                <textarea id="tts-options-json" rows="3" placeholder="{}" spellcheck="false">${optsJson}</textarea>
               </div>
             </div>
-            <div class="field-row compact tts-cache-cell">
-              <label class="check-row tight flush"><input type="checkbox" id="tts-cache" ${ttsCache ? "checked" : ""} /><span>Cache (tts.speak)</span></label>
-            </div>
           </div>
 
-          <div class="tts-row2">
-            <div class="field-row compact">
-              <label for="tts-language">Language</label>
-              <input type="text" id="tts-language" placeholder="optional, e.g. en" value="${lang}" autocomplete="off" />
-            </div>
-            <div class="field-row compact">
-              <label for="tts-options-json">Options JSON</label>
-              <textarea id="tts-options-json" rows="3" placeholder="{}" spellcheck="false">${optsJson}</textarea>
-            </div>
-          </div>
-
-          <fieldset class="fieldset">
-            <legend>Message templates</legend>
-            <p class="muted small tpl-hint">Placeholders include <code>{curb_reminder}</code>, <code>{type_status}</code>, <code>{routing_first_start}</code>, <code>{large_items_note}</code>, <code>{weekday}</code>, <code>{types_sentence}</code>, …</p>
-            <div class="template-grid">
-              <div class="field-row tpl-full">
-                <label for="tts-prefix">Prefix</label>
-                <input type="text" id="tts-prefix" value="${this._escape(o.tts_message_prefix || "")}" autocomplete="off" />
+          <div class="tts-section-card">
+            <h3 class="tts-section-title">Message templates</h3>
+            <p class="section-desc muted small">Each <strong>Preview</strong> uses sample pickups for that template (except live preview above). Edit text, then preview—no need to save first.</p>
+            <details class="tts-details">
+              <summary class="details-summary">Placeholder reference</summary>
+              <div class="details-body muted small">
+                <code>{curb_reminder}</code>, <code>{type_status}</code>, <code>{routing_first_start}</code>,
+                <code>{routing_first_start_display}</code>, <code>{large_items_note}</code>, <code>{has_large_items}</code>,
+                <code>{weekday}</code>, <code>{types}</code>, <code>{types_sentence}</code>, <code>{type}</code>,
+                <code>{types_scheduled}</code>, <code>{types_not_scheduled}</code>, <code>{residential_routing_raw}</code>
               </div>
-              <div class="field-row">
+            </details>
+            <div class="field-row tpl-full">
+              <label for="tts-prefix">Prefix (before every message)</label>
+              <input type="text" id="tts-prefix" value="${this._escape(o.tts_message_prefix || "")}" autocomplete="off" />
+            </div>
+
+            <div class="tpl-block">
+              <div class="tpl-label-row">
                 <label for="tts-msg-trash">Trash only</label>
-                <textarea id="tts-msg-trash" rows="2" spellcheck="false">${this._escape(o.tts_message_trash || "")}</textarea>
+                <button type="button" class="btn secondary btn-sm js-tts-preview" data-scenario="trash">Preview</button>
               </div>
-              <div class="field-row">
-                <label for="tts-msg-recycling">Recycling only</label>
-                <textarea id="tts-msg-recycling" rows="2" spellcheck="false">${this._escape(o.tts_message_recycling || "")}</textarea>
-              </div>
-              <div class="field-row">
-                <label for="tts-msg-compost">Compost only</label>
-                <textarea id="tts-msg-compost" rows="2" spellcheck="false">${this._escape(o.tts_message_compost || "")}</textarea>
-              </div>
-              <div class="field-row">
-                <label for="tts-msg-large">Large items only</label>
-                <textarea id="tts-msg-large" rows="2" spellcheck="false">${this._escape(o.tts_message_large_items || "")}</textarea>
-              </div>
-              <div class="field-row tpl-full">
-                <label for="tts-msg-mixed">Multiple types</label>
-                <textarea id="tts-msg-mixed" rows="2" spellcheck="false">${this._escape(o.tts_message_mixed || "")}</textarea>
-              </div>
+              <textarea id="tts-msg-trash" rows="2" spellcheck="false">${this._escape(o.tts_message_trash || "")}</textarea>
+              <div id="tts-inline-preview-trash" class="tts-inline-preview muted small" aria-live="polite"></div>
             </div>
-          </fieldset>
+            <div class="tpl-block">
+              <div class="tpl-label-row">
+                <label for="tts-msg-recycling">Recycling only</label>
+                <button type="button" class="btn secondary btn-sm js-tts-preview" data-scenario="recycling">Preview</button>
+              </div>
+              <textarea id="tts-msg-recycling" rows="2" spellcheck="false">${this._escape(o.tts_message_recycling || "")}</textarea>
+              <div id="tts-inline-preview-recycling" class="tts-inline-preview muted small" aria-live="polite"></div>
+            </div>
+            <div class="tpl-block">
+              <div class="tpl-label-row">
+                <label for="tts-msg-compost">Compost only</label>
+                <button type="button" class="btn secondary btn-sm js-tts-preview" data-scenario="compost">Preview</button>
+              </div>
+              <textarea id="tts-msg-compost" rows="2" spellcheck="false">${this._escape(o.tts_message_compost || "")}</textarea>
+              <div id="tts-inline-preview-compost" class="tts-inline-preview muted small" aria-live="polite"></div>
+            </div>
+            <div class="tpl-block">
+              <div class="tpl-label-row">
+                <label for="tts-msg-large">Large items only</label>
+                <button type="button" class="btn secondary btn-sm js-tts-preview" data-scenario="large_items">Preview</button>
+              </div>
+              <textarea id="tts-msg-large" rows="2" spellcheck="false">${this._escape(o.tts_message_large_items || "")}</textarea>
+              <div id="tts-inline-preview-large_items" class="tts-inline-preview muted small" aria-live="polite"></div>
+            </div>
+            <div class="tpl-block tpl-block-full">
+              <div class="tpl-label-row">
+                <label for="tts-msg-mixed">Multiple types</label>
+                <button type="button" class="btn secondary btn-sm js-tts-preview" data-scenario="mixed">Preview</button>
+              </div>
+              <textarea id="tts-msg-mixed" rows="2" spellcheck="false">${this._escape(o.tts_message_mixed || "")}</textarea>
+              <div id="tts-inline-preview-mixed" class="tts-inline-preview muted small" aria-live="polite"></div>
+            </div>
+          </div>
 
           ${this._ttsSaveError ? `<div class="form-error">${this._escape(this._ttsSaveError)}</div>` : ""}
           ${this._ttsTestError ? `<div class="form-error">${this._escape(this._ttsTestError)}</div>` : ""}
@@ -829,6 +947,75 @@ class NycSanitationPanel extends HTMLElement {
         }
         .settings-body { max-width: 640px; margin: 0 auto; }
         .settings-lead { margin: 0 0 12px; }
+        .tts-section-card {
+          background: var(--card-background-color, rgba(0,0,0,0.04));
+          border: 1px solid var(--divider-color);
+          border-radius: 10px;
+          padding: 14px 16px;
+          margin-bottom: 16px;
+        }
+        .tts-section-title {
+          margin: 0 0 6px;
+          font-size: 1rem;
+          font-weight: 600;
+        }
+        .section-desc { margin: 0 0 12px; line-height: 1.4; }
+        .fieldset-plain { border: none; padding: 0; margin: 0 0 8px; }
+        .fieldset-plain .fieldset-hint { margin-top: 8px; margin-bottom: 0; }
+        .tts-details { margin: 0 0 12px; }
+        .details-summary {
+          cursor: pointer;
+          font-weight: 500;
+          font-size: 13px;
+          min-height: 40px;
+          display: flex;
+          align-items: center;
+        }
+        .details-body {
+          margin-top: 8px;
+          line-height: 1.5;
+          padding: 8px 0 4px;
+        }
+        .tpl-block { margin-bottom: 14px; }
+        .tpl-block-full { width: 100%; }
+        .tpl-label-row {
+          display: flex;
+          flex-wrap: wrap;
+          align-items: center;
+          justify-content: space-between;
+          gap: 8px;
+          margin-bottom: 6px;
+        }
+        .tpl-label-row label { margin: 0; font-weight: 500; }
+        .btn-sm {
+          min-height: 36px;
+          padding: 0 12px;
+          font-size: 13px;
+          border-radius: 8px;
+          border: none;
+          font-weight: 500;
+          cursor: pointer;
+        }
+        .btn-sm.secondary {
+          background: var(--card-background-color, rgba(128,128,128,0.15));
+          color: var(--primary-text-color);
+          border: 1px solid var(--divider-color);
+        }
+        .tts-inline-preview {
+          margin-top: 8px;
+          padding: 10px 12px;
+          border-radius: 8px;
+          border: 1px dashed var(--divider-color);
+          background: rgba(128,128,128,0.06);
+          min-height: 1.2em;
+          white-space: pre-wrap;
+          word-break: break-word;
+        }
+        .tts-inline-preview.preview-error {
+          border-color: var(--error-color, #db4437);
+          color: var(--error-color, #db4437);
+        }
+        .live-preview-text { font-weight: 500; color: var(--primary-text-color); }
         .preview-block { margin-bottom: 16px; line-height: 1.5; }
         .preview-msg { margin-top: 8px; }
         .meta { margin-bottom: 16px; }
@@ -987,16 +1174,6 @@ class NycSanitationPanel extends HTMLElement {
           min-height: 44px;
         }
         .check-row.flush { margin-bottom: 0; min-height: 44px; }
-        .template-grid {
-          display: grid;
-          grid-template-columns: 1fr;
-          gap: 10px;
-        }
-        @media (min-width: 720px) {
-          .template-grid { grid-template-columns: 1fr 1fr; }
-          .template-grid .tpl-full { grid-column: 1 / -1; }
-        }
-        .tpl-hint { margin-top: 0; margin-bottom: 10px; }
         .tts-form label { font-size: 13px; font-weight: 500; }
         .tts-form input[type="text"],
         .tts-form input[type="number"],
