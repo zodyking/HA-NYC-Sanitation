@@ -878,6 +878,18 @@ class NycSanitationPanel extends HTMLElement {
           display: block;
           height: 100%;
           box-sizing: border-box;
+          /* Fixed HA-style dark palette (scoped to this panel; ignores global light/dark theme) */
+          --primary-background-color: #111111;
+          --card-background-color: #1c1c1c;
+          --secondary-background-color: #282828;
+          --clear-background-color: #111111;
+          --primary-text-color: #e1e1e1;
+          --secondary-text-color: #9b9b9b;
+          --disabled-text-color: #6f6f6f;
+          --divider-color: rgba(225, 225, 225, 0.12);
+          --app-header-background-color: #1c1c1c;
+          --app-header-text-color: #e1e1e1;
+          --text-primary-color: #ffffff;
           background: var(--primary-background-color);
           color: var(--primary-text-color);
           font-family: var(--mdc-typography-body1-font-family, var(--paper-font-body1_-_font-family, Roboto, sans-serif));
